@@ -5,3 +5,4 @@ batches/
 *.tif
 *.jpg
 leadrp_*.json
+!src/shade.jpg
