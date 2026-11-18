@@ -47,12 +47,18 @@ const R_FOOD = [[150, 20, 40], [220, 90, 50], [235, 205, 110], [120, 180, 90], [
 const R_TECH = [[60, 40, 70], [110, 60, 120], [80, 110, 190], [70, 190, 200], [240, 240, 200]];
 const R_ELEV = [[70, 120, 70], [150, 160, 90], [190, 160, 110], [150, 110, 80], [220, 215, 210]];
 const TRIBAL = [61, 74, 58];
+function stateRGB(p) {
+  const c = toRGB(p.color);
+  if (p.overlord == null) return c;
+  const o = toRGB(world.polities[p.overlord].color);
+  return [(c[0] * 0.35 + o[0] * 0.65) | 0, (c[1] * 0.35 + o[1] * 0.65) | 0, (c[2] * 0.35 + o[2] * 0.65) | 0];
+}
 const GOV_COL = { chiefdom: [120, 110, 90], kingdom: [70, 110, 170], empire: [150, 60, 150], khanate: [180, 140, 70], republic: [60, 160, 150], theocracy: [210, 200, 120], constitutional: [100, 150, 210], democracy: [90, 200, 110], dictatorship: [200, 60, 50] };
 const RES_ORDER = [['oil', [30, 30, 30]], ['coal', [90, 80, 80]], ['gold', [240, 200, 60]], ['tin', [170, 190, 210]], ['iron', [190, 90, 60]], ['horses', [200, 160, 110]], ['timber', [50, 110, 60]]];
 const cultureCache = new Map();
 function cultureColor(c) { let v = cultureCache.get(c); if (v) return v; let h = 0; for (const ch of c) h = (h * 31 + ch.charCodeAt(0)) >>> 0; v = toRGB(`hsl(${(h * 137.5) % 360},${40 + h % 25}%,${45 + (h >> 5) % 15}%)`); cultureCache.set(c, v); return v; }
 const MODES = {
-  political: { label: 'Political', color: i => world.owner[i] >= 0 ? toRGB(world.polities[world.owner[i]].color) : ramp([[52, 62, 50], [92, 100, 76]], Math.sqrt(world.pop[i] / world.area[i] / 20)) },
+  political: { label: 'Political', color: i => world.owner[i] >= 0 ? stateRGB(world.polities[world.owner[i]]) : ramp([[52, 62, 50], [92, 100, 76]], Math.sqrt(world.pop[i] / world.area[i] / 20)) },
   density: { label: 'People per km²', color: i => ramp(R_DENS, Math.log10(1 + world.pop[i] / Math.max(1, world.area[i])) / 3), legend: ['0', '10', '100', '1000+'], legendColors: [0, 1 / 3, 2 / 3, 1].map(t => css(ramp(R_DENS, t))) },
   food: { label: 'Food (fed share)', color: i => world.pop[i] < 1 ? TRIBAL : ramp(R_FOOD, (world.nour[i] - 0.7) / 0.6), legend: ['starving', 'short', 'enough', 'surplus'], legendColors: [0, 0.33, 0.55, 0.9].map(t => css(ramp(R_FOOD, t))) },
   crisis: { label: 'Deaths this year', color: i => {
@@ -77,6 +83,13 @@ const MODES = {
     legendFn: () => RES_ORDER.map(([k, c]) => [k, css(c)]) },
   trade: { label: 'Trade routes', color: i => { const o = world.owner[i]; if (o < 0) return [44, 50, 44]; const c = toRGB(world.polities[o].color); return [c[0] * 0.45 | 0, c[1] * 0.45 | 0, c[2] * 0.45 | 0]; } },
   wealth: { label: 'Wealth per person', color: i => { const o = world.owner[i]; if (o < 0) return [44, 50, 44]; const p = world.polities[o]; return ramp([[60, 50, 70], [120, 90, 140], [210, 170, 80], [250, 230, 150]], Math.log10(1 + (p.income || 0) / Math.max(1, p.pop) * 1e7) / 2.5); }, legend: ['poor', '', 'rich'], legendColors: ['rgb(60,50,70)', 'rgb(160,120,110)', 'rgb(250,230,150)'] },
+  alliances: { label: 'Alliances', color: i => {
+      const o = world.owner[i]; if (o < 0) return [40, 46, 40];
+      const p = world.polities[o], top = p.overlord != null ? world.polities[p.overlord] : p, al = world.allianceOf(top.id);
+      if (al) return toRGB(al.color);
+      const c = toRGB(p.color); return [c[0] * 0.3 + 30 | 0, c[1] * 0.3 + 30 | 0, c[2] * 0.3 + 30 | 0];
+    },
+    legendFn: () => world.alliances.filter(a => !a.ended).map(a => [`${a.name} (${a.members.size})`, a.color]).slice(0, 8) },
   fish: { label: 'Fish stocks', color: i => world.fishK[i] > 0 ? ramp([[150, 40, 40], [210, 190, 90], [60, 140, 190]], world.fish[i] / world.fishK[i]) : [42, 49, 43], legend: ['fished out', 'half', 'full'], legendColors: ['rgb(150,40,40)', 'rgb(210,190,90)', 'rgb(60,140,190)'] },
 };
 
@@ -205,8 +218,8 @@ function drawChart() {
   x.strokeStyle = '#f2b544'; x.lineWidth = 1.8; x.stroke();
   x.fillStyle = 'rgba(255,255,255,0.4)'; x.fillText(String(y0), 4, H - 3); x.textAlign = 'right'; x.fillText(String(y1), W - 4, H - 3); x.textAlign = 'left';
 }
-const ICON = { war: '⚔', peace: '🕊', famine: '🌾', plague: '☣', tech: '💡', split: '⚡', fall: '🏚', rise: '🏛', dynasty: '👑', disaster: '🌋', climate: '❄', contact: '⛵', colony: '⚓', annex: '➕', nuclear: '☢', start: '🌍', council: '📜', faith: '🕯', gov: '🏛', city: '🏙', sack: '🔥' };
-const GROUP = { war: 'war', peace: 'war', nuclear: 'war', famine: 'famine', plague: 'plague', tech: 'tech', split: 'states', fall: 'states', rise: 'states', dynasty: 'states', annex: 'states', colony: 'states', disaster: 'nature', climate: 'nature', contact: 'tech', start: 'states', council: 'council', faith: 'states', gov: 'states', city: 'states', sack: 'war' };
+const ICON = { war: '⚔', peace: '🕊', famine: '🌾', plague: '☣', tech: '💡', split: '⚡', fall: '🏚', rise: '🏛', dynasty: '👑', disaster: '🌋', climate: '❄', contact: '⛵', colony: '⚓', annex: '➕', nuclear: '☢', start: '🌍', council: '📜', faith: '🕯', gov: '🏛', city: '🏙', sack: '🔥', ruler: '👑', alliance: '🤝', vassal: '⛓' };
+const GROUP = { war: 'war', peace: 'war', nuclear: 'war', famine: 'famine', plague: 'plague', tech: 'tech', split: 'states', fall: 'states', rise: 'states', dynasty: 'states', annex: 'states', colony: 'states', disaster: 'nature', climate: 'nature', contact: 'tech', start: 'states', council: 'council', faith: 'states', gov: 'states', city: 'states', sack: 'war', ruler: 'states', alliance: 'war', vassal: 'states' };
 function eventVisible(e) {
   const g = GROUP[e.type] || 'states';
   if (!$('f-' + g).checked) return false;
@@ -248,6 +261,10 @@ function showCell(i) {
     const wars = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a].name);
     html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + row('Research / yr', (p.rpRate || 0).toFixed(0));
     if (wars.length) html += row('At war with', wars.join(', '));
+    if (p.ruler) html += row('Ruler', `${world._rulerTitle(p)}, ${p.ruler.age}`) + row('Traits', p.ruler.traits.join(', ')) + row('House', `${p.ruler.dynasty}${p.ruler.elected ? '' : ' (since ' + p.ruler.since + ')'}`);
+    const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);
+    if (p.overlord != null) html += row('Vassal of', world.polities[p.overlord].name);
+    const vs = world.polities.filter(q => q.alive && q.overlord === p.id); if (vs.length) html += row('Vassals', vs.map(q => q.name).join(', '));
     if (p.policy) html += row('Council priority', p.policy.focus + (p.policy.source === 'llm' ? ' (AI)' : ''));
   }
   html += `<div class="isec">Knows (${c.known})</div><div class="techs">${c.techs.join(' · ')}</div>`;
@@ -314,7 +331,9 @@ async function holdLLMCouncil() {
     const neighbours = [...p.neighbours].map(q => world.polities[q]).filter(q => q.alive).map(q => q.name);
     const enemies = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a].name);
     try {
-      const d = await askCouncil({ url: council.url, model: council.model, brief: world.brief(p), neighbours, enemies, every: council.every });
+      const near = new Set([...p.neighbours]); for (const q of p.neighbours) for (const r of world.polities[q].neighbours) near.add(r);
+      const allyCands = [...near].map(q => world.polities[q]).filter(q => q.alive && q.id !== p.id && q.overlord == null && !world.allied(p.id, q.id) && !world.atWarWith(p.id, q.id)).sort((a, b) => b.pop - a.pop).slice(0, 12).map(q => q.name);
+      const d = await askCouncil({ url: council.url, model: council.model, brief: world.brief(p), neighbours, enemies, allyCands, inAlliance: !!world.allianceOf(p.id), ruler: world._rulerTitle(p), every: council.every });
       world.applyDecision(p, d, 'llm');
     } catch (err) {
       council.errors++;

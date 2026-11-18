@@ -9,13 +9,13 @@ Every few decades you choose ONE priority for the coming period:
 - expansion: push borders into unclaimed land
 - stability: keep order, calm provinces that want to break away, avoid new wars
 - trade: move goods and food, share ideas with neighbours
-You may also declare war on ONE neighbour (use its exact name) or make peace with enemies (exact names). War is costly; only start one with a reason.
+You may also declare war on ONE neighbour (use its exact name) or make peace with enemies (exact names). War is costly; only start one with a reason. Attacking a state under truce is dishonourable. You may propose an alliance to ONE state (it may refuse) or leave your alliance; allies are called into each other's defensive wars.
 Reply with JSON only, with these fields in this order:
 - reasoning: your private analysis, at most 2 sentences. Numbers are fine here.
 - focus, war_target, peace_with: your decision.
-- statement: the proclamation read out to your people. ONE sentence, at most 25 words, in the voice of your culture and era. Never mention percentages, statistics, "stability", "technologies" or anything that sounds like a game; speak of harvests, borders, gods, ancestors, enemies, scholars.`;
+- statement: the proclamation your ruler reads out to the people. ONE sentence, at most 25 words, in the voice of your ruler, culture and era. Never mention percentages, statistics, "stability", "technologies" or anything that sounds like a game; speak of harvests, borders, gods, ancestors, enemies, scholars.`;
 
-export function councilSchema(neighbours, enemies) {
+export function councilSchema(neighbours, enemies, allyCands = [], inAlliance = false) {
   return {
     type: 'object',
     properties: {
@@ -23,20 +23,22 @@ export function councilSchema(neighbours, enemies) {
       focus: { type: 'string', enum: FOCI },
       war_target: { anyOf: [{ type: 'string', enum: neighbours.length ? neighbours : ['none'] }, { type: 'null' }] },
       peace_with: { type: 'array', items: { type: 'string', enum: enemies.length ? enemies : ['none'] } },
+      alliance_with: { anyOf: [{ type: 'string', enum: allyCands.length ? allyCands : ['none'] }, { type: 'null' }] },
+      leave_alliance: { type: 'boolean' },
       statement: { type: 'string', description: 'One in-character proclamation, max 25 words, no numbers or game terms.' },
     },
-    required: ['reasoning', 'focus', 'war_target', 'peace_with', 'statement'],
+    required: ['reasoning', 'focus', 'war_target', 'peace_with', 'alliance_with', 'leave_alliance', 'statement'],
   };
 }
 
-export async function askCouncil({ url, model, brief, neighbours, enemies, every, signal }) {
+export async function askCouncil({ url, model, brief, neighbours, enemies, allyCands = [], inAlliance = false, ruler = '', every, signal }) {
   const body = {
     model, stream: false,
-    format: councilSchema(neighbours, enemies),
+    format: councilSchema(neighbours, enemies, allyCands, inAlliance),
     options: { temperature: 0.8 },
     messages: [
       { role: 'system', content: SYSTEM },
-      { role: 'user', content: `${brief}\n\nNeighbours you could attack: ${neighbours.join(', ') || 'none'}.\nCurrent enemies: ${enemies.join(', ') || 'none'}.\nDecide your priority for the next ${every} years.` },
+      { role: 'user', content: `${brief}\n\nNeighbours you could attack: ${neighbours.join(', ') || 'none'}.\nCurrent enemies: ${enemies.join(', ') || 'none'}.\nPossible allies: ${allyCands.join(', ') || 'none'}.${inAlliance ? '' : ' You are in no alliance.'}\n${ruler ? `You speak for ${ruler}.\n` : ''}Decide your priority for the next ${every} years.` },
     ],
   };
   if (/qwen3/i.test(model)) body.think = false;
@@ -48,6 +50,7 @@ export async function askCouncil({ url, model, brief, neighbours, enemies, every
   const m = txt.match(/\{[\s\S]*\}/);
   const d = JSON.parse(m ? m[0] : txt);
   if (d.war_target === 'none') d.war_target = null;
+  if (d.alliance_with === 'none') d.alliance_with = null;
   d.peace_with = (d.peace_with || []).filter(n => n !== 'none');
   d.statement = tidy(d.statement, 220);
   d.reasoning = tidy(d.reasoning, 320);

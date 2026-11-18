@@ -53,8 +53,17 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 **States**
 - They rise from tribal land, fight wars (front-line famine counts as war deaths), break apart in civil wars along cultural lines, change dynasties, and plant colonies once they have ocean ships.
 
+**Rulers and dynasties**
+- Every state has a named ruler with an age and traits: ambitious, cautious, wise, cruel, pious, a builder, a conqueror, a reformer and more. Traits shape war, research and stability.
+- Rulers die. Young heirs bring regencies, and weak successions bring usurpers, new dynasties (and new Chinese dynasty names) or civil war. Republics and democracies elect leaders.
+
+**Diplomacy**
+- Threatened states form regional defensive alliances, preferring a shared faith and a common enemy. Allies answer calls to war, so chains of alliances can become named Great Wars and World Wars.
+- Badly beaten states may become tribute-paying vassals that fight their overlord's wars and revolt when strong.
+- Peace brings truces of 15–25 years.
+
 **Councils**
-- Off, rule-based, or **AI councils** using a local model through Ollama (e.g. Qwen). Every N years the largest states get a briefing and choose a priority: science, farming, army, expansion, stability or trade. They can also declare war or make peace, and they announce it in character.
+- Off, rule-based, or **AI councils** using a local model through Ollama (e.g. Qwen). Every N years the largest states get a briefing and choose a priority: science, farming, army, expansion, stability or trade. They can also declare war, make peace, or propose and leave alliances, and they announce it in their ruler's voice.
 
 ## How it's calibrated
 1. **Replay mode** (`node force.mjs <seed>`): every tech appears at its real date. Food and demography were tuned until world population follows the real curve: the replay gives 8.3 billion in 2026 against 8.2 real.
@@ -83,6 +92,7 @@ To regenerate the map data (`src/world2.json`, `src/idmap.bin`, `src/elev.bin`):
 ## Files
 - `src/engine.js`: the core simulation (food, people, plagues, tech, states, war, cities, councils)
 - `src/systems.js`: resources, trade, money, religion, culture, governments
+- `src/politics.js`: rulers, dynasties, alliances, vassals, truces, great wars
 - `src/scenario.js`: editable data (techs, year-1 states, population, plagues, volcanoes, names)
 - `src/cities.js`: historic city sites
 - `src/globe.js`: WebGL globe

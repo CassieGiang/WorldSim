@@ -5,6 +5,7 @@ import {
 } from './scenario.js';
 import { CITY_SITES, cityName } from './cities.js';
 import { installSystems, GOVS, RES, RB } from './systems.js';
+import { installPolitics, TRAITS } from './politics.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -106,7 +107,7 @@ export class World {
     }
     this.cosLat = Float32Array.from(this.lat, l => Math.cos(l * D2R));
     // dynamic state
-    this.pop = new Float64Array(N); this.soil = new Float32Array(N).fill(0.88); this.cleared = new Float32Array(N).fill(1); this.modern = new Float32Array(N); this.fish = Float32Array.from(this.fishK);
+    this.pop = new Float64Array(N); this.soil = new Float32Array(N).fill(0.88); this.cleared = new Float32Array(N).fill(1); this.modern = new Float32Array(N); this.capCache = new Float32Array(N); this.fish = Float32Array.from(this.fishK);
     this.granary = new Float32Array(N); this.nour = new Float32Array(N).fill(1); this.owner = new Int32Array(N).fill(-1);
     this.prod = new Float32Array(N); this.famine = new Float32Array(N); this.plagueHit = new Float32Array(N);
     this.urban = new Float32Array(N); this.climate = new Float32Array(N).fill(1); this.warHit = new Float32Array(N); this.warZone = new Int32Array(N);
@@ -127,6 +128,7 @@ export class World {
     this.cities = []; this.cityAt = new Int32Array(N).fill(-1);
     this._setup();
     this._sysInit();
+    this._polInit();
   }
 
   // ---------- setup ----------
@@ -209,7 +211,7 @@ export class World {
       id: this.polities.length, name, culture, color: color || this._color(), nomad: !!nomad,
       tech: new Uint8Array(NT), prog: new Float32Array(NT), rp: 0, target: -1, stability: 0.7, aggression: 0.5 + rng.next(), alive: true,
       founded: this.year, ended: null, capital: -1, cells: 0, pop: 0, urban: 0, army: 0, soldiers: 0, foreign: 0, faithPop: 0, over: 0, rpRate: 0, peakPop: 0, peakCells: 0,
-      wars: 0, fx: null, neighbours: new Set(), rel: -1, gov: null, treasury: 0, income: 0, tradePartners: new Set(), famineDeaths: 0, plagueDeaths: 0, warLoss: 0, startCells: 0,
+      wars: 0, fx: null, neighbours: new Set(), rel: -1, gov: null, treasury: 0, income: 0, tradePartners: new Set(), overlord: null, ruler: null, famineDeaths: 0, plagueDeaths: 0, warLoss: 0, startCells: 0,
     };
     this.polities.push(p);
     return p;
@@ -275,13 +277,14 @@ export class World {
     const surplus = new Float64Array(N);
     for (let i = 0; i < N; i++) {
       const pop = this.pop[i];
-      if (pop < 1) { this.pop[i] = 0; this.prod[i] = 0; this.urban[i] = 0; continue; }
+      if (pop < 1) { this.pop[i] = 0; this.prod[i] = 0; this.urban[i] = 0; this.capCache[i] = this._capacity(i); continue; }
       const fx = this.cellFx[i];
       const { farm, past } = this._landFood(i, fx);
       const ow = this.owner[i], perFarmer = 1.2 * fx.labor * (ow >= 0 && this.polities[ow].resFx ? this.polities[ow].resFx.labor : 1);
       const laborCap = pop * 0.92 * perFarmer;
       const k = 3, landF = farm + 1e-9;
-      const farmOut = fx.agri ? 1 / Math.pow(Math.pow(landF, -k) + Math.pow(laborCap, -k), 1 / k) : 0;
+      const farmOut = fx.agri ? landF * laborCap / Math.cbrt(landF * landF * landF + laborCap * laborCap * laborCap) : 0;
+      this.capCache[i] = farm + past + this.fishK[i] * 0.12;
       const farmShare = Math.min(0.92, farmOut / perFarmer / pop);
       this.urban[i] = Math.min(0.95, Math.max(0.01, (1 - farmShare) * 0.42 + fx.urban));
       // fishing: logistic stock, regrows fastest at half full
@@ -365,7 +368,7 @@ export class World {
     for (let i = 0; i < N; i++) {
       if (this.nour[i] < 1.02 || !this.cellFx[i].agri) continue;
       for (const j of this.nb[i]) {
-        const capj = this._capacity(j);
+        const capj = this.capCache[j];
         if (this.pop[j] < capj * 0.3) { const m = this.pop[i] * 0.004; this.pop[i] -= m; this.pop[j] += m; }
       }
     }
@@ -379,6 +382,8 @@ export class World {
     this._religion(y);
     this._culture(y);
     this._government(y);
+    this._rulers(y);
+    this._diplomacy(y);
     this._research(y);
     this._stability(y);
     warD += this._warfare(y);
@@ -492,7 +497,7 @@ export class World {
       if (p.capital < 0 || this.owner[p.capital] !== p.id) this._newCapital(p);
       const nomad = p.nomad && !p.fx.noNomad ? 2.2 : 1;
       p.soldiers = p.pop * (p.fx.industry ? 0.03 : 0.012) * (0.5 + p.stability) * (this._focus(p.id) === 'army' ? 1.4 : 1) * (p.broke ? 0.7 : 1);
-      p.army = p.soldiers * p.fx.mil * nomad * (p.resFx ? p.resFx.mil : 1) * (p.nomad && p.resFx && !p.resFx.horses ? 0.6 : 1);
+      p.army = p.soldiers * p.fx.mil * nomad * this._rulerFx(p).mil * (p.resFx ? p.resFx.mil : 1) * (p.nomad && p.resFx && !p.resFx.horses ? 0.6 : 1);
       p.peakPop = Math.max(p.peakPop, p.pop); p.peakCells = Math.max(p.peakCells, p.cells);
     }
   }
@@ -516,7 +521,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const U = p.urban / 1e6;
-      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.08) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * (p.resFx ? p.resFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
+      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.12) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
     }
     for (const p of this.polities) {
       if (!p.alive) continue;
@@ -597,16 +602,12 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const famineShare = p.famineDeaths / Math.max(1, p.pop), plagueShare = p.plagueDeaths / Math.max(1, p.pop);
-      const target = 0.8 - Math.min(0.5, p.over / Math.max(1, p.cells) * 1.5) - 0.1 * Math.max(0, Math.log(p.cells / this.K / (30 + p.fx.stateCap * 0.8))) - Math.min(0.4, p.wars * 0.06) - (p.foreign / Math.max(1, p.pop)) * (p.tech[T.printing] ? 0.35 : 0.1) + (this._focus(p.id) === 'stability' ? 0.12 : 0) + this._govFx(p).stab - (this.rel ? (1 - p.faithPop / Math.max(1, p.pop)) * 0.15 : 0);
+      const target = 0.8 - Math.min(0.5, p.over / Math.max(1, p.cells) * 1.5) - 0.1 * Math.max(0, Math.log(p.cells / this.K / (30 + p.fx.stateCap * 0.8))) - Math.min(0.4, p.wars * 0.06) - (p.foreign / Math.max(1, p.pop)) * (p.tech[T.printing] ? 0.35 : 0.1) + (this._focus(p.id) === 'stability' ? 0.12 : 0) + this._govFx(p).stab + this._rulerFx(p).stab + (p.overlord != null ? -0.04 : 0) - (this.rel ? (1 - p.faithPop / Math.max(1, p.pop)) * 0.15 : 0);
       p.stability += 0.06 * (target - p.stability) - famineShare * 3 - plagueShare * 1.2 - p.warLoss;
       if (rng.next() < 0.02) p.stability -= 0.1 + rng.next() * 0.15; // succession trouble
       p.stability = Math.max(0, Math.min(1, p.stability));
       p.famineDeaths = 0; p.plagueDeaths = 0; p.warLoss = 0;
       if (p.stability < 0.3 && p.cells >= 4 * this.K && rng.next() < 0.3) this._fragment(p);
-      else if (p.stability < 0.3 && p.culture === 'sinitic' && rng.next() < 0.05) {
-        const old = p.name; p.name = this._genName('sinitic'); p.stability = 0.6; p.founded = y;
-        this._log('dynasty', `The ${old} falls. The ${p.name} takes the Mandate of Heaven.`, { pol: p.id, big: p.pop > 10e6 });
-      }
     }
   }
   _fragment(p) {
@@ -652,22 +653,22 @@ export class World {
     for (const w of this.wars) if (!w.end) { this.polities[w.a].wars++; this.polities[w.b].wars++; }
     // declarations
     for (const p of this.polities) {
-      if (!p.alive || p.wars >= 2 || p.cells < 2) continue;
-      if (rng.next() > 0.045 * p.aggression * this._govFx(p).aggr * ({ army: 1.8, expansion: 1.3, stability: 0.4, science: 0.7 }[this._focus(p.id)] || 1) * (0.4 + p.stability)) continue;
+      if (!p.alive || p.wars >= 2 || p.cells < 2 || p.overlord != null) continue;
+      const rf = this._rulerFx(p);
+      if (rng.next() > 0.045 * p.aggression * rf.aggr * this._govFx(p).aggr * ({ army: 1.8, expansion: 1.3, stability: 0.4, science: 0.7 }[this._focus(p.id)] || 1) * (0.4 + p.stability)) continue;
       let best = null, bs = 0;
       for (const qid of p.neighbours) {
         const q = this.polities[qid];
-        if (!q.alive || this.wars.some(w => !w.end && ((w.a === p.id && w.b === q.id) || (w.b === p.id && w.a === q.id)))) continue;
-        const holy = this.faiths && p.rel >= 0 && q.rel >= 0 ? (p.rel === q.rel ? 0.7 : this.faiths[p.rel].universal && this.faiths[q.rel].universal ? 1.4 : 1) : 1;
+        if (!q.alive || this.atWarWith(p.id, q.id) || this.allied(p.id, q.id) || q.overlord === p.id || p.overlord === q.id) continue;
+        if (this.inTruce(p.id, q.id) && !(rf.aggr > 1.5 && rng.next() < 0.1)) continue;
+        const holy = this.faiths && p.rel >= 0 && q.rel >= 0 ? (p.rel === q.rel ? 0.7 : this.faiths[p.rel].universal && this.faiths[q.rel].universal ? 1.4 * rf.holy : 1) : 1;
+        const qAl = this.allianceOf(q.id), allyArmy = qAl ? [...qAl.members].reduce((s, m) => s + (m !== q.id ? this.polities[m].army * 0.5 : 0), 0) : 0;
         const demPeace = p.gov === 'democracy' && q.gov === 'democracy' ? 0.1 : 1;
-        const s = p.army / (q.army * q.fx.defense + 1) * (1.6 - q.stability) * holy * demPeace;
+        const s = p.army / ((q.army + allyArmy) * q.fx.defense + 1) * (1.6 - q.stability) * holy * demPeace;
         if (s > bs) { bs = s; best = q; }
       }
       if (best && bs > 0.9 + rng.next() * 0.8) {
-        const w = { a: p.id, b: best.id, start: y, end: null, deaths: 0, taken: 0, exA: 0, exB: 0, startCellsB: best.cells,
-          name: `${this._short(p.name)}–${this._short(best.name)} War` };
-        this.wars.push(w); p.wars++; best.wars++;
-        if (p.pop + best.pop > 3e6) this._log('war', `War: ${p.name} attacks ${best.name}.`, { pol: p.id });
+        this._declare(p, best);
       }
     }
     // fighting
@@ -741,10 +742,11 @@ export class World {
     for (let i = 0; i < this.N; i++) if (this.owner[i] === B.id) this.owner[i] = A.id;
     this._endPolity(B, 'is conquered');
   }
-  _annexQuiet(A, B) { for (let i = 0; i < this.N; i++) if (this.owner[i] === B.id) this.owner[i] = A.id; B.alive = false; B.ended = this.year; for (const w of this.wars) if (!w.end && (w.a === B.id || w.b === B.id)) w.end = this.year; }
+  _annexQuiet(A, B) { for (let i = 0; i < this.N; i++) if (this.owner[i] === B.id) this.owner[i] = A.id; B.alive = false; B.ended = this.year; for (const w of this.wars) if (!w.end && (w.a === B.id || w.b === B.id)) { w.end = this.year; if (this.warPairs) this._warEnded(w); } }
   _endWar(w, how) {
     if (w.end) return;
     w.end = this.year;
+    if (this.truces) { this._warEnded(w); this._afterPeace(w); }
     const A = this.polities[w.a], B = this.polities[w.b];
     if (w.deaths > 50000 || how) {
       const km = Math.round(Math.abs(w.taken) * this.cellArea * this.K / 1000) * 1000;
@@ -870,6 +872,9 @@ export class World {
       `Population ${fmt(p.pop)} (rank ${rank} in the world), ${p.cells} provinces, ${Math.round(p.urban / Math.max(1, p.pop) * 100)}% live in towns.`,
       `Stability ${Math.round(p.stability * 100)}% (healthy states usually sit at 60-75%; below 30% risks civil war). Food: people are fed at ${Math.round(fed * 100)}% of need${fam > 0 ? `, ${fmt(fam)} starved this year` : ''}.`,
       `Government: ${(GOVS[p.gov] || GOVS.kingdom).label}. State faith: ${p.rel >= 0 ? this.faiths[p.rel].name : 'none'} (${Math.round(p.faithPop / Math.max(1, p.pop) * 100)}% of people share it). Treasury: ${p.treasury > 0 ? 'in surplus' : p.broke ? 'deep in debt' : 'tight'}; trade with ${(p.tradePartners || new Set()).size} foreign states.`,
+      p.ruler ? `Ruler: ${this._rulerTitle(p)}, age ${p.ruler.age}, ${p.ruler.traits.map(t => TRAITS[t].label).join(' and ')}, of the House of ${p.ruler.dynasty}, reigning since ${p.ruler.since}.` : '',
+      `Alliance: ${(() => { const al = this.allianceOf(p.id); return al ? al.name + ' with ' + [...al.members].filter(m => m !== p.id).map(m => this.polities[m].name).join(', ') : 'none'; })()}.${p.overlord != null ? ` We are a vassal of ${this.polities[p.overlord].name} and pay it tribute.` : ''}${(() => { const v = this.polities.filter(q => q.alive && q.overlord === p.id).map(q => q.name); return v.length ? ` Our vassals: ${v.join(', ')}.` : ''; })()}`,
+      (() => { const t = [...p.neighbours].filter(q => this.inTruce(p.id, q)).map(q => this.polities[q].name); return t.length ? `Truces in force (breaking one is dishonourable): ${t.join(', ')}.` : ''; })(),
       `Army strength ${fmt(p.army)}. Technologies known: ${p.fx.known} (world best: ${best}). Latest: ${known.slice(-5).join(', ')}.`,
       `Wars: ${wars.length ? wars.join('; ') : 'none'}.`,
       `Neighbours: ${nbs.length ? nbs.join('; ') : 'none'}.`,
@@ -906,9 +911,21 @@ export class World {
     }
     const t = find(d.war_target);
     let warText = '';
-    if (t && !this.wars.some(w => !w.end && ((w.a === p.id && w.b === t.id) || (w.b === p.id && w.a === t.id)))) {
-      this.wars.push({ a: p.id, b: t.id, start: this.year, end: null, deaths: 0, taken: 0, exA: 0, exB: 0, startCellsB: t.cells, name: `${this._short(p.name)}–${this._short(t.name)} War` });
-      warText = ` and declares war on ${t.name}`;
+    if (t && p.overlord == null && !this.atWarWith(p.id, t.id)) {
+      const al = this.allianceOf(p.id); if (al && al.members.has(t.id)) { this._alDirty = true; al.members.delete(p.id); warText = ` and betrays the ${al.name}`; }
+      this._declare(p, t, '', true);
+      warText += ` and declares war on ${t.name}`;
+      this.truces.delete([p.id, t.id].sort((a, b) => a - b).join(':'));
+    }
+    if (d.leave_alliance) { const al = this.allianceOf(p.id); if (al) { this._alDirty = true; al.members.delete(p.id); warText += ` and leaves the ${al.name}`; } }
+    if (d.alliance_with) {
+      const cands = new Set([...p.neighbours]); for (const q of p.neighbours) for (const r of this.polities[q].neighbours) cands.add(r);
+      const q = [...cands].map(k => this.polities[k]).find(Q => Q.alive && Q.id !== p.id && Q.name.toLowerCase() === String(d.alliance_with).toLowerCase());
+      if (q && !this.atWarWith(p.id, q.id) && q.overlord == null && !this.allied(p.id, q.id)) {
+        // the other side accepts if it is not hostile and gains from it
+        if (this.rng.next() < (q.rel === p.rel ? 0.8 : 0.5)) { this._ally(p, q, null, ' at the council\'s proposal'); warText += ` and allies with ${q.name}`; }
+        else warText += ` and asks ${q.name} for an alliance, which is refused`;
+      }
     }
     const label = { science: 'learning', farming: 'farming and granaries', army: 'the army', expansion: 'expansion', stability: 'order at home', trade: 'trade' }[focus];
     this._log('council', `${p.name}'s council chooses ${label}${warText}.${d.statement ? ` "${d.statement}"` : ''}`, { pol: p.id, source, why: d.reasoning || '', big: !!warText || source === 'llm' });
@@ -988,3 +1005,4 @@ export class World {
   }
 }
 installSystems(World);
+installPolitics(World);
