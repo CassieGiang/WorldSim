@@ -16,6 +16,14 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 - Peoples under foreign rule rise up. Before printing these are revolts led by nobles; after printing, nationalism. Independent states take names from their people's own tradition (Đại Việt, Goryeo, Kartli…) or generated ones.
 - Generated cities are renamed when a new people takes over, and old names come back.
 
+**Economy and society**
+- 19 crops and animals (wheat, rice, millet, maize, potatoes, cassava, sugar, cotton, tea, coffee, cacao, tobacco, cattle, sheep, horses, camels, llamas…), each growing where the climate suits it. They spread from province to province on their own; across the ocean only after first contact, carried by empires and trade routes. This replaces the old single "New World crops" invention: the Columbian exchange now happens crop by crop.
+- Bread prices answer to hunger, and silver from new mines in the Americas drives prices up everywhere (a price revolution).
+- Social classes in every state (nobles, clergy, merchants, artisans, free peasants, serfs, slaves; later workers, middle class, professionals) and an inequality index.
+- Institutions appear and are abolished: serfdom, slavery (including plantation slavery after contact), guilds, property rights, votes for all, trade unions, the welfare state.
+- Grievances build up by class and end in peasant revolts, slave risings, strikes and revolutions that can change the government.
+- Big works: walls, canals, roads, harbours, temples and cathedrals, palaces, pyramids, railways and dams. They take years and money, can be abandoned, and help trade, reach or pride. They are shown on the map.
+
 **Food**
 - Farms, with yield set by soil and the year's weather.
 - Pasture, and fishing from stocks that regrow fastest when half full.
@@ -89,7 +97,7 @@ Only the population curve and the median tech dates are calibrated. Everything e
 
 ## Using it
 - **Playing:** open `index.html`. Drag to rotate, scroll to zoom, click land to inspect it.
-  - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, peoples, languages, language families, government, resources, trade routes, wealth and fish.
+  - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, peoples, languages, language families, crops and animals, bread prices, inequality, government, resources, trade routes, wealth and fish.
 - **Chronicle:** filters, plus export to `.md` (readable) or `.json` (everything).
 - **Many worlds:** runs dozens of seeds in the background. Click a row to open that world.
 - **Play a state:** click a state, then *Play as this state*. Every council year (25 by default) the game pauses and you are the council: set the priority, declare war, make peace, join or leave alliances and write a proclamation. The YOU card also lets you act at any time. If your state falls you can take over its successor, pick another or just watch.
@@ -122,6 +130,7 @@ Tests: `node test/determinism.mjs`, and `node test/check-batch.mjs` after a batc
 - `src/systems.js`: resources, trade, money, religion, culture, governments
 - `src/politics.js`: rulers, dynasties, alliances, vassals, truces, great wars
 - `src/families.js`: the followed families
+- `src/economy.js`: crops and animals, prices and silver, classes, institutions, class revolts, big works
 - `src/peoples.js`: peoples, languages, assimilation, new peoples, identity revolts
 - `src/scenario.js`: editable data (techs, year-1 states, population, plagues, volcanoes, names)
 - `src/cities.js`: historic city sites

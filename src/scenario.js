@@ -32,7 +32,7 @@ export const TECHS = [
   { id: 'banking', name: 'Banking', ry: 1400, cost: 26526, pre: ['currency', 'mathematics'], fx: { research: 1.1, tax: 1.2, redistrib: 0.05 } },
   { id: 'ocean_navigation', name: 'Ocean navigation', ry: 1450, cost: 256, pre: ['compass', 'printing'], fx: { ocean: 1, fish: 1.2 } },
   { id: 'firearms', name: 'Firearms', ry: 1500, cost: 14175, pre: ['gunpowder'], fx: { mil: 1.6, noNomad: 1 } },
-  { id: 'new_world_crops', name: 'New World crops', ry: 1550, cost: 0, noResearch: true, folk: true, fx: { yield: 1.25 } },
+  { id: 'new_world_crops', name: 'New World crops', ry: 1550, cost: 0, noResearch: true, folk: true, fx: {} },  // the yield now comes from crops that actually spread (economy.js)
   { id: 'scientific_method', name: 'Scientific method', ry: 1620, cost: 10726, pre: ['printing', 'mathematics'], fx: { research: 1.6 } },
   { id: 'inoculation', name: 'Inoculation', ry: 1720, cost: 16105, pre: ['scientific_method'], fx: { pox: 0.5, death: 0.002 } },
   { id: 'agri_revolution', name: 'Agricultural revolution', ry: 1730, cost: 18286, pre: ['crop_rotation', 'scientific_method'], fx: { yield: 1.3, labor: 1.4, soilDep: 0.7, death: 0.003, land: 1.25 } },

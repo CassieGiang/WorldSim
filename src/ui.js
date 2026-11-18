@@ -10,6 +10,7 @@ import { askCouncil, listModels, writeFamilyStory, writeChapter } from './counci
 import { FAMILY_TRAITS } from './families.js';
 import { WHATIFS } from './whatif.js';
 import { flagSVG } from './flags.js';
+import { CROPS, CLASS_LABEL, INST_LABEL, WORK_ICONS } from './economy.js';
 
 // ---------- state ----------
 const $ = id => document.getElementById(id);
@@ -99,6 +100,16 @@ const MODES = {
     legendFn: () => topBy(i => world.peoples[world.ppl[i]].li).map(k => [world.langs[k].name, css(langRGB(k))]) },
   langfam: { label: 'Language families', color: i => famRGB(world.peoples[world.ppl[i]].family),
     legendFn: () => topBy(i => world.peoples[world.ppl[i]].family, 14).map(f => [f, css(famRGB(f))]) },
+  crops: { label: 'Crops and animals', color: i => {
+      const c = world.crops[i]; if (!c || world.pop[i] < 1) return [40, 46, 40];
+      const has = id => c & (1 << CROPS.findIndex(x => x.id === id));
+      const nw = world.nw[i], foreign = CROPS.some((cr, k) => c & (1 << k) && cr.world !== 'both' && (cr.world === 'new') !== !!nw && (cr.staple || cr.animal));
+      let base = has('rice') ? [70, 150, 120] : has('maize') && nw ? [220, 190, 60] : has('wheat') ? [200, 160, 90] : has('millet') ? [170, 120, 80] : has('potato') || has('cassava') ? [180, 120, 160] : [110, 120, 100];
+      if (foreign) base = [Math.min(255, base[0] + 40), Math.min(255, base[1] + 40), Math.min(255, base[2] + 90)];
+      return base; },
+    legend: ['rice', 'wheat', 'millet & sorghum', 'maize (Americas)', 'potatoes & cassava', 'brighter: crops or animals from the other half of the world'], legendColors: ['rgb(70,150,120)', 'rgb(200,160,90)', 'rgb(170,120,80)', 'rgb(220,190,60)', 'rgb(180,120,160)', 'rgb(200,200,255)'] },
+  prices: { label: 'Bread prices', color: i => { const o = world.owner[i]; if (o < 0) return [44, 50, 44]; const p = world.polities[o]; return ramp([[60, 120, 80], [200, 190, 90], [210, 90, 50], [140, 20, 30]], Math.log2(Math.max(0.25, (p.grainPrice || 1) / world.priceLevel)) / 3 + 0.33); }, legend: ['cheap', 'usual', 'dear', 'famine prices'], legendColors: ['rgb(60,120,80)', 'rgb(200,190,90)', 'rgb(210,90,50)', 'rgb(140,20,30)'] },
+  inequality: { label: 'Inequality', color: i => { const o = world.owner[i]; if (o < 0) return [44, 50, 44]; const g = world.polities[o].gini; return g == null ? [80, 80, 80] : ramp([[70, 130, 180], [220, 210, 120], [190, 50, 50]], (g - 0.25) / 0.45); }, legend: ['equal', '', 'unequal'], legendColors: ['rgb(70,130,180)', 'rgb(220,210,120)', 'rgb(190,50,50)'] },
   government: { label: 'Government', color: i => { const o = world.owner[i]; return o < 0 ? [45, 52, 44] : GOV_COL[world.polities[o].gov] || [120, 120, 120]; },
     legendFn: () => Object.entries(GOV_COL).map(([g, c]) => [GOVS[g].label, css(c)]) },
   resources: { label: 'Resources', color: i => { const r = world.res[i]; for (const [k, c] of RES_ORDER) if (r & (1 << RES.indexOf(k))) return c; return [48, 56, 48]; },
@@ -149,6 +160,7 @@ function draw() {
   const ctx = globe.beginOverlay(), sc = globe.view.scale;
   if (mode === 'trade' || mode === 'political') drawRoutes(ctx, mode === 'trade' ? 1 : 0.25);
   const placed = mode === 'political' ? drawLabels(ctx) : [];
+  drawWorks(ctx);
   // cities
   const cities = world.topCities(sc > 2 ? 90 : sc > 1.3 ? 60 : 35);
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -168,6 +180,16 @@ function draw() {
       ctx.fillStyle = '#e8e2d2'; ctx.fillText(t, pt[0] + r + 3, pt[1]);
     }
   });
+}
+function drawWorks(ctx) {
+  if (!world.works || (mode !== 'political' && mode !== 'trade')) return;
+  ctx.font = '13px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const w of world.works) {
+    if (!(w.done && !w.abandoned) && !(!w.done && !w.abandoned)) continue;
+    const pt = globe.project(world.lon[w.cell] + 0.6, world.lat[w.cell] - 0.6); if (!pt || pt[2] < 0.3) continue;
+    ctx.globalAlpha = w.done ? 0.95 : 0.5; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,10,18,.8)'; ctx.strokeText(WORK_ICONS[w.kind] || '•', pt[0], pt[1]); ctx.fillStyle = '#ffd98a'; ctx.fillText(WORK_ICONS[w.kind] || '•', pt[0], pt[1]);
+  }
+  ctx.globalAlpha = 1; ctx.textAlign = 'left';
 }
 function drawRoutes(ctx, alpha) {
   if (!world.routes) return;
@@ -290,11 +312,12 @@ function showCell(i) {
   html += row('In towns', Math.round(c.urban * 100) + '%');
   if (c.city) html += row('City', c.city);
   html += row('Height', Math.round(c.elev / 10) * 10 + ' m') + row('Faith', c.faith);
+  if (world.crops) html += row('Grows', world.cropsHere(i).join(', ') || '–');
   html += `<div class="isec">Peoples here</div>` + world.peoplesHere(i).map(x => row(`${x.q.name} <span class="dim">(${x.q.lang}, ${x.q.family})</span>`, Math.round(x.share * 100) + '%')).join('');
   if (c.resources.length) html += row('Resources', c.resources.join(', '));
   if (p) {
     const wars = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a].name);
-    html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + row('Research / yr', (p.rpRate || 0).toFixed(0));
+    html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + row('Research / yr', (p.rpRate || 0).toFixed(0)) + (p.grainPrice ? row('Bread price', `${(p.grainPrice / world.priceLevel).toFixed(1)}× usual`) : '') + (p.classes ? row('Society', Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')) + row('Inequality', (p.gini || 0).toFixed(2)) + row('Unrest', Math.round(Math.min(1, p.unrest || 0) * 100) + '%') : '') + (p.inst && Object.keys(p.inst).length ? row('Institutions', Object.keys(p.inst).map(k => INST_LABEL[k]).join(', ')) : '');
     if (wars.length) html += row('At war with', wars.join(', '));
     if (p.ruler) html += row('Ruler', `${world._rulerTitle(p)}, ${p.ruler.age}`) + row('Traits', p.ruler.traits.join(', ')) + row('House', `${p.ruler.dynasty}${p.ruler.elected ? '' : ' (since ' + p.ruler.since + ')'}`);
     const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);
@@ -812,6 +835,8 @@ function statePage(p) {
     <div class="kv"><span>Faith</span><b>${p.rel >= 0 ? world.faiths[p.rel].name : '–'}</b></div>
     ${p.alive ? `<div class="kv"><span>People now</span><b>${fmt(p.pop)} in ${p.cells} provinces</b></div><div class="kv"><span>Peoples</span><b>${peoples}</b></div>` : ''}
     <div class="kv"><span>Peak</span><b>${fmt(peak[1])} (${peak[0]})</b></div>
+    ${p.classes ? `<div class="kv"><span>Society</span><b>${Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')}</b></div><div class="kv"><span>Institutions</span><b>${Object.entries(p.inst || {}).map(([k, y]) => `${INST_LABEL[k]} (since ${y})`).join(', ') || '–'}</b></div>` : ''}
+    ${(() => { const ws = (world.works || []).filter(w => w.pol === p.id); return ws.length ? `<div class="kv"><span>Great works</span><b>${ws.map(w => `${w.name} (${w.done ? 'built ' + w.done : w.abandoned ? 'abandoned' : 'building'})`).join('; ')}</b></div>` : ''; })()}
     <canvas id="sp-cv" style="width:100%;height:150px;margin-top:6px"></canvas>
     ${wars.length ? `<div class="isec">Wars</div><table class="ctab">${wars.map(w => `<tr><td>${w.start}–${w.end ?? ''}</td><td>${w.name}</td><td>${fmt(w.deaths)} dead</td></tr>`).join('')}</table>` : ''}
     ${reigns ? `<div class="isec">Rulers (latest ${Math.min(25, p.reigns.length)})</div><table class="ctab">${reigns}</table>` : ''}
