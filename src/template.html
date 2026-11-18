@@ -23,7 +23,10 @@
   #speedv { color:var(--dim); font-size:11px; width:52px; }
   #jumpinfo { color:var(--gold); font-size:11px; }
   main { position:relative; overflow:hidden; }
-  #globe, #overlay { position:absolute; inset:0; } #overlay { cursor:grab; } .fatal { position:absolute; inset:40% 20% auto; padding:16px; background:#3a1414; border:1px solid #a33; border-radius:8px; }
+  .pane { position:absolute; inset:0; } #pane2 { display:none; } main.split #pane1 { right:50%; } main.split #pane2 { display:block; left:50%; border-left:1px solid var(--line); }
+  .panetag { position:absolute; top:10px; right:12px; font-size:12px; color:var(--gold); pointer-events:none; display:none; } main.split .panetag { display:block; }
+  #globe, #overlay, #globe2, #overlay2 { position:absolute; inset:0; } #overlay, #overlay2 { cursor:grab; }
+  #recbtn.on { background:#7a1d1d; border-color:#e06666; } .fatal { position:absolute; inset:40% 20% auto; padding:16px; background:#3a1414; border:1px solid #a33; border-radius:8px; }
   #modes { position:absolute; left:12px; top:12px; display:flex; flex-direction:column; gap:4px; }
   #modes button { font-size:11px; padding:5px 9px; text-align:left; background:rgba(15,22,36,.85); }
   #modes button.on { border-color:var(--gold); color:var(--gold); }
@@ -95,6 +98,7 @@
     <button id="b-open">Many worlds</button>
     <label class="grp" title="Plagues, eruptions and prophets at random dates and places instead of our timeline"><input type="checkbox" id="blind"> Blind</label>
     <div class="grp"><label>Seed</label><input id="seed" type="number" value="1"><button id="newworld">New world</button></div>
+    <div class="grp"><button id="recbtn" title="Record the globe to a video file">● Record</button></div>
     <div class="grp"><button id="branch" title="Copy the world, change one thing, and run both side by side">What if…</button></div>
   </header>
   <main>
@@ -105,7 +109,8 @@
       <div id="b-sum" class="hint"></div>
       <div id="b-out"></div>
     </div>
-    <canvas id="globe"></canvas><canvas id="overlay"></canvas>
+    <div id="pane1" class="pane"><canvas id="globe"></canvas><canvas id="overlay"></canvas><div class="panetag" id="tag1"></div></div>
+    <div id="pane2" class="pane"><canvas id="globe2"></canvas><canvas id="overlay2"></canvas><div class="panetag" id="tag2"></div></div>
     <div id="modes"></div>
     <div id="legend"></div>
     <div class="note">Drag to rotate · scroll to zoom · click land to inspect<br>Climate: Beck et al. 2018 Köppen-Geiger · relief: NOAA ETOPO1</div>

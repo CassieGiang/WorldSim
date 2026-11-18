@@ -22,6 +22,7 @@ const canvas = $('overlay');
 let globe = null, colorsDirty = true;
 const player = { id: -1, held: -1, busy: false, fallen: false };
 let branch = null;   // what-if: { A, B, active: 'A' | 'B' }
+let globe2 = null, split = false, rec = null;
 const famUI = { picking: false, saved: (() => { try { return JSON.parse(store.get('families', '[]')); } catch { return []; } })(), builtin: store.get('builtinFam', '1') === '1' };
 const saveFamStore = () => store.set('families', JSON.stringify(famUI.saved));
 
@@ -139,7 +140,7 @@ function updateColors() {
   }).filter(Boolean);
   colorsDirty = false;
 }
-function resize() { if (globe) { globe.resize(); needsDraw = true; } }
+function resize() { if (globe) { globe.resize(); needsDraw = true; } if (globe2) globe2.resize(); }
 function draw() {
   if (colorsDirty) updateColors();
   globe.sel = selected >= 0 ? selected : 65535;
@@ -669,7 +670,8 @@ function frame(now) {
     if (acc > 3) acc = 0;
   }
   if (stepped) { appendEvents(); panelTimer += stepped; needsDraw = true; colorsDirty = true; if (panelTimer >= 1) { updatePanels(); panelTimer = 0; if (MODES[mode].legendFn && world.year % 10 === 0) renderLegend(); } }
-  if (needsDraw) { draw(); needsDraw = false; }
+  if (rec) needsDraw = true;
+  if (needsDraw) { draw(); drawSecond(); needsDraw = false; if (rec) recFrame(); }
   requestAnimationFrame(frame);
 }
 
@@ -703,7 +705,7 @@ function branchStats(w) {
 }
 function renderBranch() {
   const box = $('branchcard'); if (!box) return;
-  if (!branch) { box.style.display = 'none'; return; }
+  if (!branch) { box.style.display = 'none'; if (split) setSplit(false); return; }
   box.style.display = '';
   const a = branchStats(branch.A), b = branchStats(branch.B), same = branch.A.compareWith(branch.B).sameMap;
   const col = (k, st, w) => `<div class="bcol ${branch.active === k ? 'on' : ''}"><div class="crow"><b>${k === 'A' ? 'A · as it was' : 'B · what if'}</b><span style="flex:1"></span><button class="xs" data-bv="${k}">${branch.active === k ? 'viewing' : 'View'}</button></div>
@@ -711,7 +713,8 @@ function renderBranch() {
     <div class="kv"><span>People</span><b>${st.pop}</b></div><div class="kv"><span>States</span><b>${st.states}</b></div><div class="kv"><span>Wars now</span><b>${st.wars}</b></div><div class="kv"><span>Top tech</span><b>${st.tech}</b></div>
     <div style="margin-top:4px;line-height:1.5">${st.top}</div></div>`;
   $('branchbody').innerHTML = `<div class="dim">Split in ${branch.B.branchYear}. ${Math.round(same * 100)}% of the map still has the same rulers.</div><div class="bgrid">${col('A', a)}${col('B', b)}</div>
-    <div class="crow" style="margin-top:6px"><button class="xs" data-bk="A">Keep only A</button><button class="xs" data-bk="B">Keep only B</button></div>`;
+    <div class="crow" style="margin-top:6px"><button class="xs" id="b-split">${split ? 'One globe' : 'Side by side'}</button><button class="xs" data-bk="A">Keep only A</button><button class="xs" data-bk="B">Keep only B</button></div>`;
+  $('b-split').onclick = () => setSplit(!split);
 }
 document.addEventListener('click', e => {
   const v = e.target.closest('[data-bv]'); if (v) { viewBranch(v.dataset.bv); renderBranch(); return; }
@@ -848,3 +851,106 @@ function openBook() {
   $('bk-md').onclick = () => download(`worldsim_history_seed${world.seed}_${world.year}.md`, `# A history of this world (seed ${world.seed}), 1–${world.year}\n\n` + [...Array(last + 1).keys()].map(c => `## The ${ord(c + 1)} century\n\n${world.book[c] || '_(not written)_'}\n`).join('\n'), 'text/markdown');
 }
 $('x-book').onclick = openBook;
+
+
+// ---------- side by side: a second globe for the other branch ----------
+async function setSplit(on) {
+  if (on && !branch) return;
+  if (on && !globe2) { globe2 = await Globe.create($('globe2'), $('overlay2'), idBin, shadeJpg, riversPng, geo.cells.length); }
+  split = on;
+  document.querySelector('main').classList.toggle('split', on);
+  if (globe2) globe2.view = globe.view;
+  resize(); colorsDirty = true; needsDraw = true; renderBranch(); updateTags();
+}
+function updateTags() { if (!branch) return; const o = branch.active === 'A' ? 'B' : 'A'; $('tag1').textContent = branch.active === 'A' ? 'A · as it was' : 'B · what if'; $('tag2').textContent = o === 'A' ? 'A · as it was' : 'B · what if'; }
+function drawSecond() {
+  if (!split || !branch || !globe2) return;
+  const W = world, G = globe, L = labels;
+  world = branch.active === 'A' ? branch.B : branch.A; globe = globe2;
+  pplCache.clear(); langCache.clear(); colorsDirty = true;
+  try { draw(); } finally { world = W; globe = G; labels = L; pplCache.clear(); langCache.clear(); colorsDirty = false; }
+  updateTags();
+}
+for (const ov of [$('overlay2')]) {
+  let d = null;
+  ov.addEventListener('pointerdown', e => { d = { x: e.clientX, y: e.clientY, lon: globe.view.lon, lat: globe.view.lat }; ov.setPointerCapture(e.pointerId); });
+  ov.addEventListener('pointermove', e => { if (!d) return; const k = 0.25 / globe.view.scale; globe.view.lon = d.lon - (e.clientX - d.x) * k; globe.view.lat = Math.max(-85, Math.min(85, d.lat + (e.clientY - d.y) * k)); needsDraw = true; });
+  ov.addEventListener('pointerup', () => { d = null; });
+  ov.addEventListener('wheel', e => { e.preventDefault(); globe.view.scale = Math.max(0.7, Math.min(10, globe.view.scale * Math.exp(-e.deltaY * 0.0012))); needsDraw = true; }, { passive: false });
+}
+
+// ---------- video recording ----------
+function recFrame() {
+  const r = rec, x = r.ctx, W = r.cv.width, H = r.cv.height, t = (performance.now() - r.t0) / 1000;
+  x.fillStyle = '#060a14'; x.fillRect(0, 0, W, H);
+  const panes = split && globe2 ? [[$('globe'), $('overlay'), 0, W / 2], [$('globe2'), $('overlay2'), W / 2, W / 2]] : [[$('globe'), $('overlay'), 0, W]];
+  for (const [g, o, x0, pw] of panes) {
+    const sw = g.width, sh = g.height, k = Math.max(pw / sw, H / sh), dw = sw * k, dh = sh * k, dx = x0 + (pw - dw) / 2, dy = (H - dh) / 2;
+    x.save(); x.beginPath(); x.rect(x0, 0, pw, H); x.clip(); x.drawImage(g, dx, dy, dw, dh); x.drawImage(o, dx, dy, dw, dh); x.restore();
+  }
+  const u = H / 1080;
+  if (split && branch) { x.font = `600 ${26 * u}px Inter, system-ui, sans-serif`; x.fillStyle = '#f2b544'; x.textAlign = 'center'; const o = branch.active === 'A' ? 'B' : 'A'; x.fillText(branch.active === 'A' ? 'As it was' : 'What if: ' + (branch.B.branchNote || ''), W / 4, 44 * u); x.fillText(o === 'A' ? 'As it was' : 'What if: ' + (branch.B.branchNote || ''), 3 * W / 4, 44 * u); x.textAlign = 'left'; }
+  // caption bar: year, people, the latest big event
+  if (r.captions) {
+    const h = world.history.at(-1), ev = r.lastEv;
+    const g = x.createLinearGradient(0, H - 200 * u, 0, H); g.addColorStop(0, 'rgba(6,10,20,0)'); g.addColorStop(1, 'rgba(6,10,20,.92)'); x.fillStyle = g; x.fillRect(0, H - 200 * u, W, 200 * u);
+    x.fillStyle = '#f2b544'; x.font = `700 ${72 * u}px Inter, system-ui, sans-serif`; x.fillText(String(world.year), 48 * u, H - 60 * u);
+    x.fillStyle = '#e8e2d2'; x.font = `500 ${26 * u}px Inter, system-ui, sans-serif`; x.fillText(`${fmt(h.pop)} people · ${h.states} states`, 48 * u, H - 24 * u);
+    if (ev && t - ev.at < 6) { x.globalAlpha = Math.min(1, (6 - (t - ev.at)) / 1.2); x.font = `500 ${30 * u}px Inter, system-ui, sans-serif`; x.fillStyle = '#ffffff'; wrapText(x, ev.text, 340 * u, H - 92 * u, W - 400 * u, 38 * u); x.globalAlpha = 1; }
+  }
+  // title card, then the end card
+  const card = (title, lines, a) => { x.globalAlpha = a; x.fillStyle = 'rgba(6,10,20,.88)'; x.fillRect(0, 0, W, H); x.fillStyle = '#f2b544'; x.textAlign = 'center'; x.font = `700 ${64 * u}px Inter, system-ui, sans-serif`; x.fillText(title, W / 2, H / 2 - 40 * u); x.fillStyle = '#e8e2d2'; x.font = `500 ${30 * u}px Inter, system-ui, sans-serif`; lines.forEach((l, k) => x.fillText(l, W / 2, H / 2 + (20 + k * 44) * u)); x.textAlign = 'left'; x.globalAlpha = 1; };
+  if (t < 3.5) card(r.title, [`Seed ${world.seed} · from the year ${r.y0}`, world.opts.blind ? 'Blind mode: plagues, eruptions and prophets are random' : 'Real plagues, eruptions and climate at their real dates'], Math.min(1, (3.5 - t) / 0.8));
+  if (r.ending) { const e = (performance.now() - r.ending) / 1000; const top = world._largest().slice(0, 3).map(p => `${p.name}: ${fmt(p.pop)}`); card(`The year ${world.year}`, [...top, `Starved ${fmt(world.totals.famine)} · killed in war ${fmt(world.totals.war)} · plague ${fmt(world.totals.plague)}`], Math.min(1, e / 0.8)); if (e > 4) finishRec(); }
+}
+function wrapText(x, text, x0, y0, maxW, lh) {
+  const words = text.split(' '); let line = '', y = y0, n = 0;
+  for (const w of words) { const t = line ? line + ' ' + w : w; if (x.measureText(t).width > maxW && line) { x.fillText(line, x0, y); line = w; y += lh; if (++n >= 2) { x.fillText(line + '…', x0, y); return; } } else line = t; }
+  x.fillText(line, x0, y);
+}
+function startRec(opt) {
+  const [w, h] = opt.size.split('x').map(Number);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  if (!mime) { alert('This browser cannot record video.'); return; }
+  const stream = cv.captureStream(30), mr = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: w >= 1920 ? 12e6 : 6e6 });
+  rec = { cv, ctx: cv.getContext('2d'), mr, chunks: [], t0: performance.now(), title: opt.title || 'WorldSim', y0: world.year, captions: opt.captions, auto: opt.auto, lastEv: null, evCount: world.events.length, lastCam: 0, mime };
+  const R = rec; mr.ondataavailable = e => { if (e.data.size) R.chunks.push(e.data); };
+  mr.start(1000);
+  $('recbtn').classList.add('on'); $('recbtn').textContent = '■ Stop';
+  if (opt.play && !playing) $('play').click();
+}
+function stopRec() { if (rec && !rec.ending) { rec.ending = performance.now(); if (playing) $('play').click(); } }
+function finishRec() {
+  const r = rec; rec = null;
+  r.mr.onstop = () => { const blob = new Blob(r.chunks, { type: r.mime.split(';')[0] }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `worldsim_seed${world.seed}_${r.y0}-${world.year}.${r.mime.includes('mp4') ? 'mp4' : 'webm'}`; a.click(); };
+  r.mr.stop();
+  $('recbtn').classList.remove('on'); $('recbtn').textContent = '● Record';
+}
+// captions and the camera follow the big events
+function recEvents() {
+  if (!rec) return;
+  const t = (performance.now() - rec.t0) / 1000;
+  for (let k = rec.evCount; k < world.events.length; k++) {
+    const e = world.events[k];
+    if (e.type === 'family' || !(e.big || (e.deaths || 0) > 2e6)) continue;
+    rec.lastEv = { text: `${e.y}: ${e.text}`, at: t };
+    const c = e.cell !== undefined ? e.cell : e.pol !== undefined && e.pol >= 0 && world.polities[e.pol].capital >= 0 ? world.polities[e.pol].capital : -1;
+    if (rec.auto && c >= 0 && t - rec.lastCam > 5) { rec.lastCam = t; focusCell(c); }
+  }
+  rec.evCount = world.events.length;
+}
+setInterval(recEvents, 200);
+$('recbtn').onclick = () => {
+  if (rec) { stopRec(); return; }
+  $('story-title').textContent = 'Record a video';
+  $('story-body').innerHTML = `<p class="dim">Records the globe as you see it (map mode, zoom, side by side if a what-if is open) with captions, a title card and an end card. Run the world while recording; press Stop to finish. The file downloads as .webm.</p>
+    <div class="crow"><label>Title <input id="rv-title" value="A world, seed ${world.seed}"></label></div>
+    <div class="crow"><label>Size <select id="rv-size"><option>1920x1080</option><option>1280x720</option><option>1080x1080</option><option>1080x1920</option></select></label></div>
+    <label style="display:block"><input type="checkbox" id="rv-cap" checked> Captions: year, people, the latest big event</label>
+    <label style="display:block"><input type="checkbox" id="rv-auto" checked> Camera follows the big events</label>
+    <label style="display:block"><input type="checkbox" id="rv-play" checked> Start playing when recording starts</label>
+    <div class="crow" style="margin-top:10px"><button class="primary" id="rv-go">Start recording</button></div>`;
+  $('story').classList.add('open');
+  $('rv-go').onclick = () => { $('story').classList.remove('open'); startRec({ title: $('rv-title').value, size: $('rv-size').value, captions: $('rv-cap').checked, auto: $('rv-auto').checked, play: $('rv-play').checked }); };
+};
