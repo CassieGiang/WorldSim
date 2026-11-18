@@ -7,6 +7,7 @@ import { CITY_SITES, cityName } from './cities.js';
 import { installSystems, GOVS, RES, RB } from './systems.js';
 import { installPolitics, TRAITS } from './politics.js';
 import { installFamilies } from './families.js';
+import { installPeoples } from './peoples.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -131,8 +132,25 @@ export class World {
     this._setup();
     this._sysInit();
     this._polInit();
+    this._pplInit();
     this._famInit();
     this._aggregate();
+    this._initTowns();
+  }
+
+  // year 1 already has towns and cities: work out the town share and place them before the first step
+  _initTowns() {
+    this._refreshFx();
+    for (let i = 0; i < this.N; i++) {
+      const pop = this.pop[i]; if (pop < 1) continue;
+      const fx = this.cellFx[i], { farm } = this._landFood(i, fx);
+      const perFarmer = 1.2 * fx.labor, laborCap = pop * 0.92 * perFarmer, landF = farm + 1e-9;
+      const farmOut = fx.agri ? landF * laborCap / Math.cbrt(landF * landF * landF + laborCap * laborCap * laborCap) : 0;
+      this.urban[i] = Math.min(0.95, Math.max(0.01, (1 - Math.min(0.92, farmOut / perFarmer / pop)) * 0.42 + fx.urban));
+    }
+    this._aggregate();
+    this._cities(true);
+    this.history.pop(); this._record(0, 0, 0);
   }
 
   // ---------- setup ----------
@@ -367,14 +385,14 @@ export class World {
       for (const j of this.nb[i]) tot += Math.max(0, this.nour[j] - 0.97);
       if (tot <= 0) continue;
       this.pop[i] -= m;
-      for (const j of this.nb[i]) { const w = Math.max(0, this.nour[j] - 0.97); if (w > 0) this.pop[j] += m * w / tot; }
+      for (const j of this.nb[i]) { const w = Math.max(0, this.nour[j] - 0.97); if (w > 0) { this.pop[j] += m * w / tot; this._carry(i, j, m * w / tot); } }
     }
     // frontier settlement: well-fed farmers spill into empty farmland next door
     for (let i = 0; i < N; i++) {
       if (this.nour[i] < 1.02 || !this.cellFx[i].agri) continue;
       for (const j of this.nb[i]) {
         const capj = this.capCache[j];
-        if (this.pop[j] < capj * 0.3) { const m = this.pop[i] * 0.004; this.pop[i] -= m; this.pop[j] += m; }
+        if (this.pop[j] < capj * 0.3) { const m = this.pop[i] * 0.004; this.pop[i] -= m; this.pop[j] += m; this._carry(i, j, m); }
       }
     }
 
@@ -385,7 +403,8 @@ export class World {
     this._resources();
     this._economy();
     this._religion(y);
-    this._culture(y);
+    this._peoples(y);
+    this._renameCities(y);
     this._government(y);
     this._rulers(y);
     this._diplomacy(y);
@@ -487,7 +506,7 @@ export class World {
       const o = this.owner[i]; if (o < 0) continue;
       const p = this.polities[o];
       p.cells++; p.pop += this.pop[i]; p.urban += this.pop[i] * this.urban[i];
-      if (p.capital >= 0 && this.culture[i] !== this.culture[p.capital]) p.foreign += this.pop[i];
+      if (p.capital >= 0) { if (this.ppl && !this.opts.xOldForeign) { const a = this.ppl[i], R = this.ppl[p.capital]; if (a !== R) { const A = this.peoples[a], B = this.peoples[R]; p.foreign += this.pop[i] * (A.branch === B.branch ? 0.3 : A.family === B.family ? 0.65 : 1); } } else if (this.culture[i] !== this.culture[p.capital]) p.foreign += this.pop[i]; }
       if (this.rel && this.rel[i] === p.rel) p.faithPop += this.pop[i];
       for (const j of this.nb[i]) { const q = this.owner[j]; if (q >= 0 && q !== o) p.neighbours.add(q); }
       if (p.fx.sea) for (const j of this.sl[i]) { const q = this.owner[j]; if (q >= 0 && q !== o) p.neighbours.add(q); }
@@ -527,7 +546,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const U = p.urban / 1e6;
-      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.12) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
+      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.15) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
     }
     for (const p of this.polities) {
       if (!p.alive) continue;
@@ -608,7 +627,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const famineShare = p.famineDeaths / Math.max(1, p.pop), plagueShare = p.plagueDeaths / Math.max(1, p.pop);
-      const target = 0.8 - Math.min(0.5, p.over / Math.max(1, p.cells) * 1.5) - 0.1 * Math.max(0, Math.log(p.cells / this.K / (30 + p.fx.stateCap * 0.8))) - Math.min(0.4, p.wars * 0.06) - (p.foreign / Math.max(1, p.pop)) * (p.tech[T.printing] ? 0.35 : 0.1) + (this._focus(p.id) === 'stability' ? 0.12 : 0) + this._govFx(p).stab + this._rulerFx(p).stab + Math.min(0.1, (y - p.founded) / 1500) + (p.legitBase || 0) * Math.max(0, 1 - (y - 1) / 600) + (p.overlord != null ? -0.04 : 0) - (this.rel ? (1 - p.faithPop / Math.max(1, p.pop)) * 0.15 : 0);
+      const target = 0.8 - Math.min(0.5, p.over / Math.max(1, p.cells) * 1.5) - 0.1 * Math.max(0, Math.log(p.cells / this.K / (30 + p.fx.stateCap * 0.8))) - Math.min(0.4, p.wars * 0.06) - (p.foreign / Math.max(1, p.pop)) * (p.tech[T.printing] ? 0.25 : 0.08) + (this._focus(p.id) === 'stability' ? 0.12 : 0) + this._govFx(p).stab + this._rulerFx(p).stab + Math.min(0.1, (y - p.founded) / 1500) + (p.legitBase || 0) * Math.max(0, 1 - (y - 1) / 600) + (p.overlord != null ? -0.04 : 0) - (this.rel ? (1 - p.faithPop / Math.max(1, p.pop)) * 0.15 : 0);
       p.stability += 0.06 * (target - p.stability) - famineShare * 3 - plagueShare * 1.2 - p.warLoss;
       if (rng.next() < 0.02) p.stability -= 0.1 + rng.next() * 0.15; // succession trouble
       p.stability = Math.max(0, Math.min(1, p.stability));
@@ -625,25 +644,27 @@ export class World {
       const cand = cells.filter(c => this.owner[c] === p.id && c !== p.capital);
       if (!cand.length) break;
       // peoples of another culture break away first (nationalism); otherwise the far provinces go
-      const capCul = this.culture[p.capital], byCul = new Map();
-      for (const c of cand) if (this.culture[c] !== capCul) byCul.set(this.culture[c], (byCul.get(this.culture[c]) || 0) + this.pop[c]);
+      const ident = this.ppl || this.culture, capCul = ident[p.capital], byCul = new Map();
+      const kin = c => this.ppl && this.peoples[this.ppl[c]].branch === this.peoples[capCul].branch;
+      for (const c of cand) if (ident[c] !== capCul && !kin(c)) byCul.set(ident[c], (byCul.get(ident[c]) || 0) + this.pop[c]);
       let seed, sameCulture = null;
       if (byCul.size && rng.next() < (p.tech[T.printing] ? 0.85 : 0.5)) {
         sameCulture = [...byCul.entries()].sort((a, b) => b[1] - a[1])[0][0];
-        const pool = cand.filter(c => this.culture[c] === sameCulture).sort((a, b) => this.pop[b] - this.pop[a]);
+        const pool = cand.filter(c => ident[c] === sameCulture).sort((a, b) => this.pop[b] - this.pop[a]);
         seed = pool[0];
       } else {
         cand.sort((a, b) => this.distDeg(b, p.capital) - this.distDeg(a, p.capital));
         seed = cand[Math.floor(rng.next() * Math.min(cand.length, 1 + cand.length / 3))];
       }
-      const size = sameCulture ? cells.length : Math.max(1, Math.floor(cells.length * (0.15 + rng.next() * 0.25)));
+      const size = sameCulture !== null ? cells.length : Math.max(1, Math.floor(cells.length * (0.15 + rng.next() * 0.25)));
       const culture = this.culture[seed];
-      const q = this._newPolity(this._genName(culture), culture, null, p.nomad);
+      const q = this._newPolity(sameCulture !== null && this.ppl ? this._peopleStateName(this.peoples[sameCulture]) : this._genName(culture), culture, null, p.nomad);
+      if (this.ppl) q.people = this.ppl[seed];
       q.tech.set(p.tech); q.prog.set(p.prog); q.fx = p.fx; q.stability = 0.55; q.capital = seed; q.rel = this.rel ? this.rel[seed] : -1; q.gov = p.gov === 'empire' ? 'kingdom' : p.gov;
       const queue = [seed]; this.owner[seed] = q.id; let got = 1;
       while (queue.length && got < size) {
         const c = queue.shift();
-        for (const j of this.nb[c]) if (this.owner[j] === p.id && j !== p.capital && got < size && (!sameCulture || this.culture[j] === sameCulture)) { this.owner[j] = q.id; queue.push(j); got++; }
+        for (const j of this.nb[c]) if (this.owner[j] === p.id && j !== p.capital && got < size && (sameCulture === null || ident[j] === sameCulture)) { this.owner[j] = q.id; queue.push(j); got++; }
       }
       made.push(q);
     }
@@ -706,6 +727,7 @@ export class World {
           this.pop[c] -= loss; w.deaths += loss; deaths += loss;
           this.granary[c] = 0; this.soil[c] = Math.max(0.35, this.soil[c] - 0.05); this.warHit[c] = 1;
           this.owner[c] = to;
+          if (this.ppl && this.polities[to].nomad && this.polities[to].capital >= 0) this._mixIn(c, this.ppl[this.polities[to].capital], 0.1);
         }
       };
       for (const c of front) this.warZone[c] = wi + 1;
@@ -794,7 +816,8 @@ export class World {
       if ((near + this.pop[i]) * this.sK < 4e5) continue;
       const culture = this.culture[i];
       const nomad = this.pastureY[i] < 1.2 && this.arable[i] < 2500 && this.cellTech[i][T.horses];
-      const p = this._newPolity(this._genName(culture), culture, null, nomad);
+      const p = this._newPolity(this.ppl && rng.next() < 0.5 ? this._peopleStateName(this.peoples[this.ppl[i]]) : this._genName(culture), culture, null, nomad);
+      if (this.ppl) p.people = this.ppl[i];
       p.tech.set(this.cellTech[i]); p.fx = this._fxOf(p.tech); p.capital = i; p.stability = 0.65; p.rel = this.rel ? this.rel[i] : -1;
       this.owner[i] = p.id;
       const queue = [i]; let got = 1, lim = Math.round((2 + rng.int(6)) * this.K);
@@ -802,7 +825,7 @@ export class World {
         const c = queue.shift();
         for (const j of this.nb[c]) if (this.owner[j] < 0 && this.pop[j] > 1000 / this.K && got < lim) { this.owner[j] = p.id; queue.push(j); got++; }
       }
-      if (this.pop[i] > 3e5) this._log('rise', `${p.name} rises in ${this._tribeName(i).replace(' peoples', '')} country.`, { pol: p.id });
+      if (this.pop[i] > 3e5) this._log('rise', `${p.name} rises among the ${this._tribeName(i)}.`, { pol: p.id });
     }
   }
 
@@ -874,7 +897,8 @@ export class World {
     const recent = this.events.filter(e => e.y > this.year - 40 && e.type !== 'start' && (e.pol === p.id || (e.text && e.text.includes(p.name)))).slice(-6).map(e => `${e.y}: ${e.text}`);
     const best = this.polities.filter(q => q.alive).reduce((a, q) => (q.fx.known > a ? q.fx.known : a), 0);
     return [
-      `State: ${p.name} (${p.culture} culture), founded ${p.founded}. Year now: ${this.year}.`,
+      `State: ${p.name}, founded ${p.founded}. Year now: ${this.year}.`,
+      this.ppl ? (() => { const t = new Map(); for (let i = 0; i < this.N; i++) if (this.owner[i] === p.id) t.set(this.ppl[i], (t.get(this.ppl[i]) || 0) + this.pop[i]); const top = [...t].sort((a, b) => b[1] - a[1]).slice(0, 4); const R = this.ppl[p.capital]; return `Peoples: ${top.map(([q, n]) => `${this.peoples[q].name} ${Math.round(n / Math.max(1, p.pop) * 100)}%${q === R ? ' (ruling people)' : ''}`).join(', ')}. Peoples other than the ruling one may rise up, especially when the state is weak, at war or of another faith.`; })() : '',
       `Population ${fmt(p.pop)} (rank ${rank} in the world), ${p.cells} provinces, ${Math.round(p.urban / Math.max(1, p.pop) * 100)}% live in towns.`,
       `Stability ${Math.round(p.stability * 100)}% (healthy states usually sit at 60-75%; below 30% risks civil war). Food: people are fed at ${Math.round(fed * 100)}% of need${fam > 0 ? `, ${fmt(fam)} starved this year` : ''}.`,
       `Government: ${(GOVS[p.gov] || GOVS.kingdom).label}. State faith: ${p.rel >= 0 ? this.faiths[p.rel].name : 'none'} (${Math.round(p.faithPop / Math.max(1, p.pop) * 100)}% of people share it). Treasury: ${p.treasury > 0 ? 'in surplus' : p.broke ? 'deep in debt' : 'tight'}; trade with ${(p.tradePartners || new Set()).size} foreign states.`,
@@ -1048,3 +1072,4 @@ export class World {
 installSystems(World);
 installPolitics(World);
 installFamilies(World);
+installPeoples(World);

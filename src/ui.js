@@ -23,6 +23,7 @@ const famUI = { picking: false, saved: (() => { try { return JSON.parse(store.ge
 const saveFamStore = () => store.set('families', JSON.stringify(famUI.saved));
 
 function newWorld(seed) {
+  pplCache.clear(); langCache.clear();
   world = new World(geo, seed, worldOpts());
   council.held = -1; player.id = -1; player.held = -1; player.busy = false; world.playerId = -1; renderPlayer();
   selected = -1; lastEventCount = 0; $('log').innerHTML = ''; spin = null;
@@ -63,6 +64,11 @@ function stateRGB(p) {
 const GOV_COL = { chiefdom: [120, 110, 90], kingdom: [70, 110, 170], empire: [150, 60, 150], khanate: [180, 140, 70], republic: [60, 160, 150], theocracy: [210, 200, 120], constitutional: [100, 150, 210], democracy: [90, 200, 110], dictatorship: [200, 60, 50] };
 const RES_ORDER = [['oil', [30, 30, 30]], ['coal', [90, 80, 80]], ['gold', [240, 200, 60]], ['tin', [170, 190, 210]], ['iron', [190, 90, 60]], ['horses', [200, 160, 110]], ['timber', [50, 110, 60]]];
 const cultureCache = new Map();
+const pplCache = new Map(), langCache = new Map(), famCache = new Map();
+function pplRGB(k) { let v = pplCache.get(k); if (!v) { v = toRGB(world.peoples[k].color); pplCache.set(k, v); } return v; }
+function langRGB(k) { let v = langCache.get(k); if (!v) { v = toRGB(world.langs[k].color); langCache.set(k, v); } return v; }
+function famRGB(f) { let v = famCache.get(f); if (!v) { v = toRGB(world.FAMILY_COLORS[f] || '#888'); famCache.set(f, v); } return v; }
+function topBy(fn, n = 10) { const t = new Map(); for (let i = 0; i < world.N; i++) { const k = fn(i); t.set(k, (t.get(k) || 0) + world.pop[i]); } return [...t].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k]) => k); }
 function cultureColor(c) { let v = cultureCache.get(c); if (v) return v; let h = 0; for (const ch of c) h = (h * 31 + ch.charCodeAt(0)) >>> 0; v = toRGB(`hsl(${(h * 137.5) % 360},${40 + h % 25}%,${45 + (h >> 5) % 15}%)`); cultureCache.set(c, v); return v; }
 const MODES = {
   political: { label: 'Political', color: i => world.owner[i] >= 0 ? stateRGB(world.polities[world.owner[i]]) : ramp([[52, 62, 50], [92, 100, 76]], Math.sqrt(world.pop[i] / world.area[i] / 20)) },
@@ -82,8 +88,12 @@ const MODES = {
   tech: { label: 'Technologies known', color: i => ramp(R_TECH, world.cellFx[i].known / TECHS.length), legend: ['few', '', 'all'], legendColors: [0, 0.5, 1].map(t => css(ramp(R_TECH, t))) },
   religion: { label: 'Religion', color: i => { const f = world.faiths[world.rel[i]]; const c = toRGB(f.color), k = 0.55 + 0.45 * world.relStr[i]; return [c[0] * k | 0, c[1] * k | 0, c[2] * k | 0]; },
     legendFn: () => world.faiths.filter(f => f.pop > 0).sort((a, b) => b.pop - a.pop).slice(0, 9).map(f => [`${f.name} ${fmt(f.pop)}`, f.color]) },
-  culture: { label: 'Culture', color: i => cultureColor(world.culture[i]),
-    legendFn: () => { const t = new Map(); for (let i = 0; i < world.N; i++) t.set(world.culture[i], (t.get(world.culture[i]) || 0) + world.pop[i]); return [...t].sort((a, b) => b[1] - a[1]).slice(0, 9).map(([c]) => [c, css(cultureColor(c))]); } },
+  peoples: { label: 'Peoples', color: i => { const a = pplRGB(world.ppl[i]); if (world.ppl2[i] === 65535 || world.mix[i] < 0.15) return a; const b = pplRGB(world.ppl2[i]), m = world.mix[i]; return [lerp(a[0], b[0], m) | 0, lerp(a[1], b[1], m) | 0, lerp(a[2], b[2], m) | 0]; },
+    legendFn: () => topBy(i => world.ppl[i]).map(k => [world.peoples[k].name, css(pplRGB(k))]) },
+  language: { label: 'Languages', color: i => langRGB(world.peoples[world.ppl[i]].li),
+    legendFn: () => topBy(i => world.peoples[world.ppl[i]].li).map(k => [world.langs[k].name, css(langRGB(k))]) },
+  langfam: { label: 'Language families', color: i => famRGB(world.peoples[world.ppl[i]].family),
+    legendFn: () => topBy(i => world.peoples[world.ppl[i]].family, 14).map(f => [f, css(famRGB(f))]) },
   government: { label: 'Government', color: i => { const o = world.owner[i]; return o < 0 ? [45, 52, 44] : GOV_COL[world.polities[o].gov] || [120, 120, 120]; },
     legendFn: () => Object.entries(GOV_COL).map(([g, c]) => [GOVS[g].label, css(c)]) },
   resources: { label: 'Resources', color: i => { const r = world.res[i]; for (const [k, c] of RES_ORDER) if (r & (1 << RES.indexOf(k))) return c; return [48, 56, 48]; },
@@ -236,8 +246,8 @@ function drawChart() {
   x.strokeStyle = '#f2b544'; x.lineWidth = 1.8; x.stroke();
   x.fillStyle = 'rgba(255,255,255,0.4)'; x.fillText(String(y0), 4, H - 3); x.textAlign = 'right'; x.fillText(String(y1), W - 4, H - 3); x.textAlign = 'left';
 }
-const ICON = { war: '⚔', peace: '🕊', famine: '🌾', plague: '☣', tech: '💡', split: '⚡', fall: '🏚', rise: '🏛', dynasty: '👑', disaster: '🌋', climate: '❄', contact: '⛵', colony: '⚓', annex: '➕', nuclear: '☢', start: '🌍', council: '📜', faith: '🕯', gov: '🏛', city: '🏙', sack: '🔥', ruler: '👑', alliance: '🤝', vassal: '⛓', family: '👪' };
-const GROUP = { war: 'war', peace: 'war', nuclear: 'war', famine: 'famine', plague: 'plague', tech: 'tech', split: 'states', fall: 'states', rise: 'states', dynasty: 'states', annex: 'states', colony: 'states', disaster: 'nature', climate: 'nature', contact: 'tech', start: 'states', council: 'council', faith: 'states', gov: 'states', city: 'states', sack: 'war', ruler: 'states', alliance: 'war', vassal: 'states', family: 'family' };
+const ICON = { war: '⚔', peace: '🕊', famine: '🌾', plague: '☣', tech: '💡', split: '⚡', fall: '🏚', rise: '🏛', dynasty: '👑', disaster: '🌋', climate: '❄', contact: '⛵', colony: '⚓', annex: '➕', nuclear: '☢', start: '🌍', council: '📜', faith: '🕯', gov: '🏛', city: '🏙', sack: '🔥', ruler: '👑', alliance: '🤝', vassal: '⛓', family: '👪', people: '🗣' };
+const GROUP = { war: 'war', peace: 'war', nuclear: 'war', famine: 'famine', plague: 'plague', tech: 'tech', split: 'states', fall: 'states', rise: 'states', dynasty: 'states', annex: 'states', colony: 'states', disaster: 'nature', climate: 'nature', contact: 'tech', start: 'states', council: 'council', faith: 'states', gov: 'states', city: 'states', sack: 'war', ruler: 'states', alliance: 'war', vassal: 'states', family: 'family', people: 'states' };
 function eventVisible(e) {
   const g = GROUP[e.type] || 'states';
   if (!$('f-' + g).checked) return false;
@@ -266,14 +276,15 @@ function showCell(i) {
   const c = world.cellInfo(i), p = c.owner;
   const row = (k, v) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`;
   let html = `<div class="ihead">${p ? `<span class="sw" style="background:${p.color}"></span>${p.name}` : c.tribe}</div>`;
-  html += `<div class="isub">${Math.abs(c.lat).toFixed(0)}°${c.lat >= 0 ? 'N' : 'S'} ${Math.abs(c.lon).toFixed(0)}°${c.lon >= 0 ? 'E' : 'W'} · ${c.culture}${c.river ? ' · ' + c.river + ' river' : ''}</div>`;
+  html += `<div class="isub">${Math.abs(c.lat).toFixed(0)}°${c.lat >= 0 ? 'N' : 'S'} ${Math.abs(c.lon).toFixed(0)}°${c.lon >= 0 ? 'E' : 'W'} · ${world.peopleOf(i).name}${c.river ? ' · ' + c.river + ' river' : ''}</div>`;
   html += row('People', fmt(c.pop)) + row('Per km²', c.density.toFixed(1)) + row('Fed', Math.round(c.nour * 100) + '%');
   html += row('Harvest weather', (c.climate >= 1 ? '+' : '') + Math.round((c.climate - 1) * 100) + '%');
   html += row('Granary', fmt(c.granary) + ' rations') + row('Soil', Math.round(c.soil * 100) + '%') + row('Farmland cleared', Math.round(world.cleared[i] * 100) + '%');
   if (c.fishK > 0) html += row('Fish stock', Math.round(c.fish / c.fishK * 100) + '%');
   html += row('In towns', Math.round(c.urban * 100) + '%');
   if (c.city) html += row('City', c.city);
-  html += row('Height', Math.round(c.elev / 10) * 10 + ' m') + row('Faith', c.faith) + row('Culture', c.culture);
+  html += row('Height', Math.round(c.elev / 10) * 10 + ' m') + row('Faith', c.faith);
+  html += `<div class="isec">Peoples here</div>` + world.peoplesHere(i).map(x => row(`${x.q.name} <span class="dim">(${x.q.lang}, ${x.q.family})</span>`, Math.round(x.share * 100) + '%')).join('');
   if (c.resources.length) html += row('Resources', c.resources.join(', '));
   if (p) {
     const wars = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a].name);

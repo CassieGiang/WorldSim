@@ -9,6 +9,13 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 - 11,421 land provinces (~100 km), from the Köppen-Geiger climate map (Beck et al. 2018) and NOAA ETOPO1 relief, plus 40 major rivers.
 - Terrain matters: mountains defend in war, slow conquest and plague, and hold less farmland.
 
+**Peoples and languages**
+- About 650 peoples of year 1 in ~35 language families. Built from the GREG map of modern ethnic groups (Weidmann, Rød & Cederman 2010, from the Soviet *Atlas Narodov Mira*, 1964), projected back to year 1 with a correction layer for groups that arrived later (Slavs in the Balkans, Turks in Anatolia, Arabs in North Africa, Europeans in the Americas and Australia, Bantu in southern Africa…). The rules are in `data/year1_peoples.py`; `python prep_peoples.py <greg folder>` rebuilds `src/peoples.json`.
+- Each province holds a main people and a minority. Peoples assimilate to their rulers (faster in towns, with a shared faith and later with schools), migrants and refugees carry their people with them, and nomad conquerors settle as an elite.
+- Provinces that stay mixed for generations can form a new people (e.g. Gotho-Latins), whose tongue comes from the majority.
+- Peoples under foreign rule rise up. Before printing these are revolts led by nobles; after printing, nationalism. Independent states take names from their people's own tradition (Đại Việt, Goryeo, Kartli…) or generated ones.
+- Generated cities are renamed when a new people takes over, and old names come back.
+
 **Food**
 - Farms, with yield set by soil and the year's weather.
 - Pasture, and fishing from stocks that regrow fastest when half full.
@@ -75,13 +82,14 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 1. **Replay mode** (`node force.mjs <seed>`): every tech appears at its real date. Food and demography were tuned until world population follows the real curve: the replay gives 8.3 billion in 2026 against 8.2 real.
 2. **Tech costs** (`node costs.mjs`): each cost is the research the leading state produced between the date the tech became possible and its real date.
 3. **Many worlds** (`node batch.mjs 50 1 2026`): free-running worlds then scatter around real history. An early lead feeds on itself, so the spread is wide.
-4. **Hold-out validation** (`node validate.mjs 12 1 1 2` normal, add `blind` for blind mode): wars, cities, urban share, life expectancy, faiths, number of states and democracies are never tuned. They are compared with history in `reports/`. Currently 13 of 27 pass in normal mode and 10 of 21 in blind mode. The failures are the to-do list in `ROADMAP.md`.
+   The only free knob is research speed (`RS`, default 1.15). It was raised from 1.12 when the peoples layer (more breakaways) delayed the median tech dates; 12-world medians are now printing 1450, factories 1757, contact 1483.
+4. **Hold-out validation** (`node validate.mjs 12 1 0` normal, `node validate.mjs 12 1 1` blind): wars, cities, urban share, life expectancy, faiths, number of states and democracies are never tuned. They are compared with history in `reports/`. Currently 13 of 27 pass in normal mode and 10 of 21 in blind mode. The failures are the to-do list in `ROADMAP.md`.
 
 Only the population curve and the median tech dates are calibrated. Everything else is emergent or a fixed input (map, year-1 states, and in normal mode the dates of plagues, eruptions and prophets).
 
 ## Using it
 - **Playing:** open `index.html`. Drag to rotate, scroll to zoom, click land to inspect it.
-  - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, culture, government, resources, trade routes, wealth and fish.
+  - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, peoples, languages, language families, government, resources, trade routes, wealth and fish.
 - **Chronicle:** filters, plus export to `.md` (readable) or `.json` (everything).
 - **Many worlds:** runs dozens of seeds in the background. Click a row to open that world.
 - **Play a state:** click a state, then *Play as this state*. Every council year (25 by default) the game pauses and you are the council: set the priority, declare war, make peace, join or leave alliances and write a proclamation. The YOU card also lets you act at any time. If your state falls you can take over its successor, pick another or just watch.
@@ -108,6 +116,7 @@ Tests: `node test/determinism.mjs`, and `node test/check-batch.mjs` after a batc
 - `src/systems.js`: resources, trade, money, religion, culture, governments
 - `src/politics.js`: rulers, dynasties, alliances, vassals, truces, great wars
 - `src/families.js`: the followed families
+- `src/peoples.js`: peoples, languages, assimilation, new peoples, identity revolts
 - `src/scenario.js`: editable data (techs, year-1 states, population, plagues, volcanoes, names)
 - `src/cities.js`: historic city sites
 - `src/globe.js`: WebGL globe

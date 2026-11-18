@@ -1,6 +1,6 @@
 # WorldSim roadmap: "much deeper simulation of nearly everything"
 
-Status: **approved** (18 Nov 2026). Stage 0 done (player mode, custom families, rivers, crisper map, blind mode, validation, regression tests). Next: stage A.
+Status: **approved** (18 Nov 2026). Stage 0 done (player mode, custom families, rivers, crisper map, blind mode, validation, regression tests). Stage A first drop done (18 Nov): year-1 peoples from GREG plus a correction layer, assimilation, migration carrying peoples, ethnogenesis, identity revolts and nationalism, people-named states, city renaming. Still to do in A: diasporas and the language-family tree view. Next: stage F.
 
 ## Ground rules (apply to every stage)
 
@@ -23,6 +23,7 @@ Status: **approved** (18 Nov 2026). Stage 0 done (player mode, custom families, 
 ## Stage 0: finishing what's in flight (before the roadmap starts)
 
 - [x] Recalibration after rulers/alliances and Rome's legitimacy (12-world medians: printing 1473, contact 1492, factories 1738)
+- [x] Recalibration after the peoples layer: research speed 1.12 → 1.15, and kin peoples (same language branch) no longer break away first in civil wars (12-world medians: printing 1450, contact 1483, factories 1757)
 - [x] Family jobs: realistic job mix by era (most people farm until modern times), job changes during life (pressed into the army, leaving the land, new trades)
 - [x] Blind mode in the engine (random plagues, eruptions, earthquakes, climate swings, invented prophets)
 - [~] Map: 4096×2048 province map, coastlines from the 1 km climate raster, sharper hill shading, **major rivers** (Natural Earth). Textures are built; wiring them into the globe is next.
@@ -53,7 +54,7 @@ Status: **approved** (18 Nov 2026). Stage 0 done (player mode, custom families, 
 
 ## Stage A: peoples & languages *(why no Đại Việt appears)*
 
-**Data:** a curated map of about 200 peoples living in year 1, built from standard historical atlases and labelled as curated. Examples: Lạc Việt, Yue, Han, Xiongnu, Xianbei, Koreans (Samhan, Buyeo), Yayoi Wa; Tamils, Sinhalese, Indo-Aryans by region; Persians, Parthians, Sogdians, Bactrians; Arabs, Nabataeans, Aramaeans, Jews; Greeks, Latins, Celts by region, Iberians, Berbers, Egyptians, Nubians; Germanic and Gothic peoples, Balts, Slavs, Finns, Sarmatians, Scythians; Bantu groups, Khoisan; Mon, Khmer, Pyu, Cham, Tai; Mesoamerican, Andean and Amazonian peoples.
+**Data (as built):** the GREG modern ethnic map projected back to year 1, with a curated correction layer of ~165 year-1 peoples where modern groups arrived later. Originally planned: a fully curated map of about 200 peoples. Examples: Lạc Việt, Yue, Han, Xiongnu, Xianbei, Koreans (Samhan, Buyeo), Yayoi Wa; Tamils, Sinhalese, Indo-Aryans by region; Persians, Parthians, Sogdians, Bactrians; Arabs, Nabataeans, Aramaeans, Jews; Greeks, Latins, Celts by region, Iberians, Berbers, Egyptians, Nubians; Germanic and Gothic peoples, Balts, Slavs, Finns, Sarmatians, Scythians; Bantu groups, Khoisan; Mon, Khmer, Pyu, Cham, Tai; Mesoamerican, Andean and Amazonian peoples.
 
 Each people gets:
 - a language
