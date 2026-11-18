@@ -165,6 +165,7 @@ function draw() {
   if (mode === 'trade' || mode === 'political') drawRoutes(ctx, mode === 'trade' ? 1 : 0.25);
   const placed = mode === 'political' ? drawLabels(ctx) : [];
   drawWorks(ctx);
+  drawArmies(ctx);
   // cities
   const cities = world.topCities(sc > 2 ? 90 : sc > 1.3 ? 60 : 35);
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -184,6 +185,27 @@ function draw() {
       ctx.fillStyle = '#e8e2d2'; ctx.fillText(t, pt[0] + r + 3, pt[1]);
     }
   });
+}
+function drawArmies(ctx) {
+  if (mode !== 'political' && mode !== 'alliances') return;
+  const sc = globe.view.scale;
+  for (const b of world.battles || []) {
+    const age = world.year - b.y; if (age > 8) continue;
+    const pt = globe.project(world.lon[b.cell], world.lat[b.cell]); if (!pt || pt[2] < 0.3) continue;
+    ctx.globalAlpha = 1 - age / 9; ctx.font = `${Math.round(10 + Math.min(10, Math.log10(Math.max(10, b.dead)) * 2) * Math.min(1.5, sc))}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('⚔', pt[0], pt[1]);
+  }
+  ctx.globalAlpha = 1;
+  for (const a of world.armies || []) {
+    if (!a.alive) continue;
+    const pt = globe.project(world.lon[a.cell], world.lat[a.cell]); if (!pt || pt[2] < 0.25) continue;
+    const p = world.polities[a.pol], r = Math.max(3, Math.min(11, Math.log10(Math.max(100, a.size)) * 2 - 4)) * Math.min(1.6, Math.sqrt(sc));
+    // the road it came by
+    ctx.beginPath(); let on = false; for (const c of a.trail) { const q = globe.project(world.lon[c], world.lat[c]); if (!q) { on = false; continue; } on ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); on = true; }
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.2; ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(pt[0], pt[1] - r); ctx.lineTo(pt[0] + r, pt[1]); ctx.lineTo(pt[0], pt[1] + r); ctx.lineTo(pt[0] - r, pt[1]); ctx.closePath();
+    ctx.fillStyle = p.color; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke();
+  }
 }
 function drawWorks(ctx) {
   if (!world.works || (mode !== 'political' && mode !== 'trade')) return;
@@ -328,6 +350,7 @@ function showCell(i) {
   html += row('In towns', Math.round(c.urban * 100) + '%');
   if (c.city) html += row('City', c.city);
   html += row('Height', Math.round(c.elev / 10) * 10 + ' m') + row('Faith', c.faith);
+  for (const a of (world.armies || []).filter(a => a.alive && world.distDeg(a.cell, i) < 2.5)) html += `<div class="isec">Army of ${world.polities[a.pol].name}</div>` + row('Soldiers', fmt(a.size)) + row('Troops', a.mix || '') + row('General', `${a.gen.name} (${a.gen.traits.join(', ')}), ${a.gen.wins} wins, ${a.gen.losses} defeats`) + row('Supply', Math.round(a.supply * 100) + '%') + row('Morale', Math.round(a.morale * 100) + '%') + row('War', a.war.name);
   if (world.crops) html += row('Grows', world.cropsHere(i).join(', ') || '–');
   html += `<div class="isec">Peoples here</div>` + world.peoplesHere(i).map(x => row(`${x.q.name} <span class="dim">(${x.q.lang}, ${x.q.family})</span>`, Math.round(x.share * 100) + '%')).join('');
   if (c.resources.length) html += row('Resources', c.resources.join(', '));
@@ -857,6 +880,7 @@ function statePage(p) {
     ${(() => { const ws = (world.works || []).filter(w => w.pol === p.id); return ws.length ? `<div class="kv"><span>Great works</span><b>${ws.map(w => `${w.name} (${w.done ? 'built ' + w.done : w.abandoned ? 'abandoned' : 'building'})`).join('; ')}</b></div>` : ''; })()}
     <canvas id="sp-cv" style="width:100%;height:150px;margin-top:6px"></canvas>
     ${wars.length ? `<div class="isec">Wars</div><table class="ctab">${wars.map(w => `<tr><td>${w.start}–${w.end ?? ''}</td><td>${w.name}</td><td>${fmt(w.deaths)} dead</td></tr>`).join('')}</table>` : ''}
+    ${(() => { const bs = (world.battles || []).filter(b => b.winner === p.name || b.loser === p.name).sort((a, b) => b.dead - a.dead).slice(0, 10); return bs.length ? `<div class="isec">Great battles</div><table class="ctab">${bs.map(b => `<tr><td>${b.y}</td><td>${b.name}</td><td>${b.winner === p.name ? 'won' : 'lost'} (${b.winner === p.name ? b.wg : b.lg})</td><td>${fmt(b.dead)}</td></tr>`).join('')}</table>` : ''; })()}
     ${reigns ? `<div class="isec">Rulers (latest ${Math.min(25, p.reigns.length)})</div><table class="ctab">${reigns}</table>` : ''}
     <div class="isec">In the chronicle</div>${evs.slice(-40).map(e => `<p><b>${e.y}</b> ${e.text}</p>`).join('')}`;
   $('story').classList.add('open');
@@ -997,3 +1021,19 @@ $('recbtn').onclick = () => {
   $('story').classList.add('open');
   $('rv-go').onclick = () => { $('story').classList.remove('open'); startRec({ title: $('rv-title').value, size: $('rv-size').value, captions: $('rv-cap').checked, auto: $('rv-auto').checked, play: $('rv-play').checked }); };
 };
+
+
+// ---------- phones: the bottom panel, and pinch to zoom ----------
+$('panelbtn').onclick = () => { const a = document.querySelector('aside'); a.classList.toggle('open'); $('panelbtn').textContent = a.classList.contains('open') ? '▼ Hide the panel' : '▲ World, states and chronicle'; };
+{
+  const pts = new Map(); let pinch = null;
+  for (const ov of [canvas, $('overlay2')]) {
+    ov.style.touchAction = 'none';
+    ov.addEventListener('pointerdown', e => { pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: globe.view.scale }; drag = null; } });
+    ov.addEventListener('pointermove', e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, [e.clientX, e.clientY]); if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; globe.view.scale = Math.max(0.7, Math.min(10, pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d)); needsDraw = true; } });
+    const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+    ov.addEventListener('pointerup', up); ov.addEventListener('pointercancel', up);
+  }
+  // a tap on the map on a phone shows the inspector
+  canvas.addEventListener('pointerup', () => { if (window.innerWidth <= 820 && selected >= 0 && !pinch) { const a = document.querySelector('aside'); if (!a.classList.contains('open')) $('panelbtn').click(); setTimeout(() => $('inspector').scrollIntoView({ block: 'start', behavior: 'smooth' }), 260); } });
+}

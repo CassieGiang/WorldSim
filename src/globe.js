@@ -114,7 +114,7 @@ export class Globe {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 128, this.rows, gl.RGBA, gl.UNSIGNED_BYTE, this.colData);
   }
   resize() {
-    const r = this.c.parentElement.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    const r = this.c.parentElement.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, r.width < 900 ? 2 : 3);
     for (const cv of [this.c, this.o]) { cv.width = r.width * dpr; cv.height = r.height * dpr; cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px'; }
     this.cssW = r.width; this.cssH = r.height; this.dpr = dpr;
     this.octx.setTransform(dpr, 0, 0, dpr, 0, 0);

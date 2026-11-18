@@ -26,6 +26,11 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 - Grievances build up by class and end in peasant revolts, slave risings, strikes and revolutions that can change the government.
 - Big works: walls, canals, roads, harbours, temples and cathedrals, palaces, pyramids, railways and dams. They take years and money, can be abandoned, and help trade, reach or pride. They are shown on the map.
 
+**Armies and war**
+- Each side of a war fields an army with a named general (brilliant, bold, cautious, cruel, a master of supply…) and the troops of its era, from spearmen to tanks. Armies march over terrain, faster on roads and railways, and live off the land, so long campaigns starve themselves and the provinces they cross.
+- Battles are named after the nearest city. Walled cities must be besieged; gunpowder shortens sieges. Generals with many victories become famous and may seize power.
+- The front moves where the armies are. Armies, their roads and recent battles are drawn on the political map; click one to see it.
+
 **Ideas and nations**
 - Ideologies are born when their conditions first exist somewhere (liberalism needs print and merchants; socialism needs factories and workers; fascism needs defeat and hard times) and spread like faiths. In blind mode they get invented names.
 - Support is tracked per province from its classes and crises. Democracies hold elections; elsewhere radical ideas bring revolutions, purges, and revolutions exported to neighbours. Ideology changes research, war appetite, allies and enemies.
@@ -98,12 +103,13 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 1. **Replay mode** (`node force.mjs <seed>`): every tech appears at its real date. Food and demography were tuned until world population follows the real curve: the replay gives 8.3 billion in 2026 against 8.2 real.
 2. **Tech costs** (`node costs.mjs`): each cost is the research the leading state produced between the date the tech became possible and its real date.
 3. **Many worlds** (`node batch.mjs 50 1 2026`): free-running worlds then scatter around real history. An early lead feeds on itself, so the spread is wide.
-   The only free knob is research speed (`RS`, default 1.15). It was raised from 1.12 when the peoples layer (more breakaways) delayed the median tech dates; 12-world medians are now printing 1450, factories 1757, contact 1483.
+   The only free knob is research speed (`RS`, default 1.08). It went 1.12 → 1.15 with the peoples layer (more breakaways) and 1.15 → 1.08 with field armies (bigger conquests); 12-world medians are now printing 1462, factories 1786, contact 1489.
 4. **Hold-out validation** (`node validate.mjs 12 1 0` normal, `node validate.mjs 12 1 1` blind): wars, cities, urban share, life expectancy, faiths, number of states and democracies are never tuned. They are compared with history in `reports/`. Currently 13 of 27 pass in normal mode and 10 of 21 in blind mode. The failures are the to-do list in `ROADMAP.md`.
 
 Only the population curve and the median tech dates are calibrated. Everything else is emergent or a fixed input (map, year-1 states, and in normal mode the dates of plagues, eruptions and prophets).
 
 ## Using it
+- **Phones:** works on GitHub Pages in a phone browser: the map fills the screen, tap the bar at the bottom for the panel, pinch to zoom. AI features need Ollama on a PC.
 - **Playing:** open `index.html`. Drag to rotate, scroll to zoom, click land to inspect it.
   - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, peoples, languages, language families, crops and animals, bread prices, inequality, ideologies, nationhood, government, resources, trade routes, wealth and fish.
 - **Chronicle:** filters, plus export to `.md` (readable) or `.json` (everything).
