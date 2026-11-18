@@ -10,6 +10,7 @@ import { installFamilies } from './families.js';
 import { installPeoples } from './peoples.js';
 import { installWhatIf } from './whatif.js';
 import { installEconomy, installMarkets } from './economy.js';
+import { installIdeologies } from './ideologies.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -137,6 +138,7 @@ export class World {
     this._polInit();
     this._pplInit();
     this._ecoInit();
+    this._ideoInit();
     this._famInit();
     this._aggregate();
     this._initTowns();
@@ -407,6 +409,7 @@ export class World {
     this._resources();
     this._economy();
     this._economyB(y);
+    this._ideologies(y);
     this._religion(y);
     this._peoples(y);
     this._renameCities(y);
@@ -551,7 +554,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const U = p.urban / 1e6;
-      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.15) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (p.instFx ? p.instFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
+      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.15) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (p.instFx ? p.instFx.research : 1) * (p.ideoFx ? p.ideoFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
     }
     for (const p of this.polities) {
       if (!p.alive) continue;
@@ -632,7 +635,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const famineShare = p.famineDeaths / Math.max(1, p.pop), plagueShare = p.plagueDeaths / Math.max(1, p.pop);
-      const target = 0.8 - Math.min(0.5, p.over / Math.max(1, p.cells) * 1.5) - 0.1 * Math.max(0, Math.log(p.cells / this.K / (30 + p.fx.stateCap * 0.8))) - Math.min(0.4, p.wars * 0.06) - (p.foreign / Math.max(1, p.pop)) * (p.tech[T.printing] ? 0.25 : 0.08) + (this._focus(p.id) === 'stability' ? 0.12 : 0) + this._govFx(p).stab + this._rulerFx(p).stab + Math.min(0.1, (y - p.founded) / 1500) + (p.legitBase || 0) * Math.max(0, 1 - (y - 1) / 600) + (p.overlord != null ? -0.04 : 0) + (p.instFx ? p.instFx.stab : 0) + (p.worksFx ? p.worksFx.stab : 0) - (this.rel ? (1 - p.faithPop / Math.max(1, p.pop)) * 0.15 : 0);
+      const target = 0.8 - Math.min(0.5, p.over / Math.max(1, p.cells) * 1.5) - 0.1 * Math.max(0, Math.log(p.cells / this.K / (30 + p.fx.stateCap * 0.8))) - Math.min(0.4, p.wars * 0.06) - (p.foreign / Math.max(1, p.pop)) * (p.tech[T.printing] ? 0.25 : 0.08) + (this._focus(p.id) === 'stability' ? 0.12 : 0) + this._govFx(p).stab + this._rulerFx(p).stab + Math.min(0.1, (y - p.founded) / 1500) + (p.legitBase || 0) * Math.max(0, 1 - (y - 1) / 600) + (p.overlord != null ? -0.04 : 0) + (p.instFx ? p.instFx.stab : 0) + (p.ideoFx ? p.ideoFx.stab : 0) + (p.worksFx ? p.worksFx.stab : 0) - (this.rel ? (1 - p.faithPop / Math.max(1, p.pop)) * 0.15 : 0);
       p.stability += 0.06 * (target - p.stability) - famineShare * 3 - plagueShare * 1.2 - p.warLoss;
       if (rng.next() < 0.02) p.stability -= 0.1 + rng.next() * 0.15; // succession trouble
       p.stability = Math.max(0, Math.min(1, p.stability));
@@ -687,7 +690,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive || p.wars >= 2 || p.cells < 2 || p.overlord != null) continue;
       const rf = this._rulerFx(p);
-      if (rng.next() > 0.045 * p.aggression * rf.aggr * this._govFx(p).aggr * ({ army: 1.8, expansion: 1.3, stability: 0.4, science: 0.7 }[this._focus(p.id)] || 1) * (0.4 + p.stability)) continue;
+      if (rng.next() > 0.045 * p.aggression * rf.aggr * (p.ideoFx ? p.ideoFx.aggr : 1) * this._govFx(p).aggr * ({ army: 1.8, expansion: 1.3, stability: 0.4, science: 0.7 }[this._focus(p.id)] || 1) * (0.4 + p.stability)) continue;
       let best = null, bs = 0;
       for (const qid of p.neighbours) {
         const q = this.polities[qid];
@@ -696,7 +699,7 @@ export class World {
         const holy = this.faiths && p.rel >= 0 && q.rel >= 0 ? (p.rel === q.rel ? 0.7 : this.faiths[p.rel].universal && this.faiths[q.rel].universal ? 1.4 * rf.holy : 1) : 1;
         const qAl = this.allianceOf(q.id), allyArmy = qAl ? [...qAl.members].reduce((s, m) => s + (m !== q.id ? this.polities[m].army * 0.5 : 0), 0) : 0;
         const demPeace = p.gov === 'democracy' && q.gov === 'democracy' ? 0.1 : 1;
-        const s = p.army / ((q.army + allyArmy) * q.fx.defense + 1) * (1.6 - q.stability) * holy * demPeace;
+        const s = p.army / ((q.army + allyArmy) * q.fx.defense + 1) * (1.6 - q.stability) * holy * demPeace * (this.ideoHostility ? this.ideoHostility(p, q) : 1) * (this.inLeague && this.inLeague(p.id, q.id) ? 0.5 : 1);
         if (s > bs) { bs = s; best = q; }
       }
       if (best && bs > 0.9 + rng.next() * 0.8) {
@@ -904,6 +907,7 @@ export class World {
     return [
       `State: ${p.name}, founded ${p.founded}. Year now: ${this.year}.`,
       this.ppl ? (() => { const t = new Map(); for (let i = 0; i < this.N; i++) if (this.owner[i] === p.id) t.set(this.ppl[i], (t.get(this.ppl[i]) || 0) + this.pop[i]); const top = [...t].sort((a, b) => b[1] - a[1]).slice(0, 4); const R = this.ppl[p.capital]; return `Peoples: ${top.map(([q, n]) => `${this.peoples[q].name} ${Math.round(n / Math.max(1, p.pop) * 100)}%${q === R ? ' (ruling people)' : ''}`).join(', ')}. Peoples other than the ruling one may rise up, especially when the state is weak, at war or of another faith.`; })() : '',
+      p.ideo !== undefined && this.ideoName ? `Ruling idea: ${this.ideoName(p.ideo)}.${p.support ? ' Support among the people: ' + [...p.support].map((v, k) => [k, v]).filter(x => x[1] > 0.05).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${this.ideoName(k)} ${Math.round(v * 100)}%`).join(', ') + '.' : ''} Nationhood ${Math.round((p.nation || 0) * 100)}%.` : '',
       `Population ${fmt(p.pop)} (rank ${rank} in the world), ${p.cells} provinces, ${Math.round(p.urban / Math.max(1, p.pop) * 100)}% live in towns.`,
       `Stability ${Math.round(p.stability * 100)}% (healthy states usually sit at 60-75%; below 30% risks civil war). Food: people are fed at ${Math.round(fed * 100)}% of need${fam > 0 ? `, ${fmt(fam)} starved this year` : ''}.`,
       `Government: ${(GOVS[p.gov] || GOVS.kingdom).label}. State faith: ${p.rel >= 0 ? this.faiths[p.rel].name : 'none'} (${Math.round(p.faithPop / Math.max(1, p.pop) * 100)}% of people share it). Treasury: ${p.treasury > 0 ? 'in surplus' : p.broke ? 'deep in debt' : 'tight'}; trade with ${(p.tradePartners || new Set()).size} foreign states.`,
@@ -1056,7 +1060,8 @@ export class World {
       if (this.year % 10 === 0 || this.year <= 1) {
         const f = {}; if (this.rel) for (let i = 0; i < this.N; i++) { const r = this.rel[i]; if (r >= 0) f[r] = (f[r] || 0) + this.pop[i]; }
         const fam = {}; if (this.ppl) for (let i = 0; i < this.N; i++) { const q = this.peoples[this.ppl[i]].family; fam[q] = (fam[q] || 0) + this.pop[i]; }
-        (this.shareHist || (this.shareHist = [])).push({ y: this.year, faith: f, fam });
+        const ideo = {}; if (this.ideoSup) { const K = this.ideoSup.length / this.N; for (let i = 0; i < this.N; i++) for (let k = 0; k < K; k++) { const v = this.ideoSup[i * K + k] * this.pop[i]; if (v) ideo[k] = (ideo[k] || 0) + v; } }
+        (this.shareHist || (this.shareHist = [])).push({ y: this.year, faith: f, fam, ideo });
       }
     }
   }
@@ -1090,4 +1095,5 @@ installPeoples(World);
 installWhatIf(World);
 installEconomy(World);
 installMarkets(World);
+installIdeologies(World);
 World.prototype._rngFactory = makeRng;

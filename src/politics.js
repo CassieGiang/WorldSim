@@ -93,6 +93,7 @@ export function installPolitics(World) {
       // succession
       const crisis = (p.stability < 0.45 ? 0.25 : 0.06) + (R.age < 25 ? 0.1 : 0) + (p.gov === 'dictatorship' ? 0.3 : 0);
       if (deposed || r.next() < crisis) {
+        if (this._inheritance && p.marriedTo && r.next() < 0.5 && this._inheritance(p)) continue;
         if (r.next() < 0.45 && p.cells >= 6 * this.K) {
           this._newRuler(p, false, true);
           if (big) this._log('ruler', `${deposed ? 'Overthrown' : 'Succession crisis'} in ${p.name}: ${oldName} ${deposed ? 'is deposed' : 'dies without a clear heir'}. The usurper ${p.ruler.name} founds the House of ${p.ruler.dynasty}.`, { pol: p.id, big: p.pop > 20e6 });
@@ -148,7 +149,7 @@ export function installPolitics(World) {
       for (const q of threat.neighbours) {
         if (q === p.id) continue;
         const Q = this.polities[q]; if (!Q.alive || Q.overlord != null || this.atWarWith(p.id, q) || this.allied(p.id, q)) continue;
-        let s = Q.army / Math.max(1, threat.army) * (Q.rel === p.rel ? 1.6 : 0.8) * (Q.gov === p.gov ? 1.2 : 1) * (p.neighbours.has(q) ? 1.2 : 1);
+        let s = Q.army / Math.max(1, threat.army) * (this.ideoAffinity ? this.ideoAffinity(p, Q) : 1) * (Q.rel === p.rel ? 1.6 : 0.8) * (Q.gov === p.gov ? 1.2 : 1) * (p.neighbours.has(q) ? 1.2 : 1);
         if (this.atWarWith(q, threat.id)) s *= 2;
         if (s > bs) { bs = s; best = Q; }
       }
@@ -228,6 +229,7 @@ export function installPolitics(World) {
   P._afterPeace = function (w) {
     this.truces.set(pairKey(w.a, w.b), this.year + 15 + this.rng.int(11));
     const A = this.polities[w.a], B = this.polities[w.b];
+    if (w.taken > 1) B.lostWar = this.year; else if (w.taken < -1) A.lostWar = this.year;
     // a badly beaten defender may become a vassal
     if (A.alive && B.alive && B.overlord == null && w.taken > 3 && B.army < A.army * 0.4 && this.rng.next() < 0.35) {
       B.overlord = A.id; B.vassalSince = this.year;

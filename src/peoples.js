@@ -113,7 +113,7 @@ export function installPeoples(World) {
         * (1.5 - loc.identity) * (1 / (1 + d / 18)) * (p.tech[T.printing] && !p.tech[T.public_education] ? 0.7 : 1) * (colonial ? 3 : 1);
       // a big local majority holds on much better than a thin one
       if (this.pop[i] > 3e5 / this.K && !touch) rate *= 0.5;
-      this._mixIn(i, R, rate);
+      this._mixIn(i, R, rate * (this.nationFx ? this.nationFx(p).assim : 1));
     }
   };
 
@@ -184,6 +184,7 @@ export function installPeoples(World) {
       let pr = 0.0004 * q.identity * q.identity * 4 * (1.3 - p.stability) * (0.5 + far) * faith * (q.hadState ? 1.4 : 1) * (p.wars ? 1.6 : 1) * (1 + q.grievance)
         * (nation ? 2.5 : 1) * (mass ? 2 : 1) * Math.min(1, share * 6 + 0.3) * (p.overlord != null ? 1.3 : 1) * this.sK;
       if (p.id === this.playerId) pr *= 0.8;
+      if (this.nationFx) { const nf = this.nationFx(p); pr *= nf.revolt; q.grievance = Math.min(3, q.grievance * (1 + (nf.grievance - 1) * 0.01)); }
       if (rng.next() > pr) continue;
       // will it succeed? the rebels' numbers against the state's grip
       const odds = 0.12 + 0.45 * (1 - p.stability) + 0.5 * share + (p.wars ? 0.15 : 0) - (p.fx ? Math.min(0.25, p.fx.stateCap / 1000) : 0);

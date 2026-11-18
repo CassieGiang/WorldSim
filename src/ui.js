@@ -11,6 +11,7 @@ import { FAMILY_TRAITS } from './families.js';
 import { WHATIFS } from './whatif.js';
 import { flagSVG } from './flags.js';
 import { CROPS, CLASS_LABEL, INST_LABEL, WORK_ICONS } from './economy.js';
+import { IDEOS, NATION_POLICY } from './ideologies.js';
 
 // ---------- state ----------
 const $ = id => document.getElementById(id);
@@ -110,6 +111,9 @@ const MODES = {
     legend: ['rice', 'wheat', 'millet & sorghum', 'maize (Americas)', 'potatoes & cassava', 'brighter: crops or animals from the other half of the world'], legendColors: ['rgb(70,150,120)', 'rgb(200,160,90)', 'rgb(170,120,80)', 'rgb(220,190,60)', 'rgb(180,120,160)', 'rgb(200,200,255)'] },
   prices: { label: 'Bread prices', color: i => { const o = world.owner[i]; if (o < 0) return [44, 50, 44]; const p = world.polities[o]; return ramp([[60, 120, 80], [200, 190, 90], [210, 90, 50], [140, 20, 30]], Math.log2(Math.max(0.25, (p.grainPrice || 1) / world.priceLevel)) / 3 + 0.33); }, legend: ['cheap', 'usual', 'dear', 'famine prices'], legendColors: ['rgb(60,120,80)', 'rgb(200,190,90)', 'rgb(210,90,50)', 'rgb(140,20,30)'] },
   inequality: { label: 'Inequality', color: i => { const o = world.owner[i]; if (o < 0) return [44, 50, 44]; const g = world.polities[o].gini; return g == null ? [80, 80, 80] : ramp([[70, 130, 180], [220, 210, 120], [190, 50, 50]], (g - 0.25) / 0.45); }, legend: ['equal', '', 'unequal'], legendColors: ['rgb(70,130,180)', 'rgb(220,210,120)', 'rgb(190,50,50)'] },
+  ideology: { label: 'Ideologies', color: i => { if (!world.ideoSup || world.pop[i] < 1) return [40, 46, 40]; const K = IDEOS.length; let b = 0, bv = -1; for (let k = 0; k < K; k++) { const v = world.ideoSup[i * K + k]; if (v > bv) { bv = v; b = k; } } if (bv <= 0) return [60, 64, 60]; const c = toRGB(IDEOS[b].color); const t = Math.min(1, 0.45 + bv); return [c[0] * t | 0, c[1] * t | 0, c[2] * t | 0]; },
+    legendFn: () => IDEOS.filter((x, k) => k < 3 || (world.ideoBorn && world.ideoBorn[x.id])).map(x => [world.ideoName(IDEOS.indexOf(x)), x.color]) },
+  nation: { label: 'Nationhood', color: i => { const o = world.owner[i]; if (o < 0) return [44, 50, 44]; return ramp([[90, 80, 70], [170, 150, 90], [90, 160, 200]], world.polities[o].nation || 0); }, legend: ['subjects', '', 'one nation'], legendColors: ['rgb(90,80,70)', 'rgb(170,150,90)', 'rgb(90,160,200)'] },
   government: { label: 'Government', color: i => { const o = world.owner[i]; return o < 0 ? [45, 52, 44] : GOV_COL[world.polities[o].gov] || [120, 120, 120]; },
     legendFn: () => Object.entries(GOV_COL).map(([g, c]) => [GOVS[g].label, css(c)]) },
   resources: { label: 'Resources', color: i => { const r = world.res[i]; for (const [k, c] of RES_ORDER) if (r & (1 << RES.indexOf(k))) return c; return [48, 56, 48]; },
@@ -329,7 +333,7 @@ function showCell(i) {
   if (c.resources.length) html += row('Resources', c.resources.join(', '));
   if (p) {
     const wars = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a].name);
-    html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + row('Research / yr', (p.rpRate || 0).toFixed(0)) + (p.grainPrice ? row('Bread price', `${(p.grainPrice / world.priceLevel).toFixed(1)}× usual`) : '') + (p.classes ? row('Society', Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')) + row('Inequality', (p.gini || 0).toFixed(2)) + row('Unrest', Math.round(Math.min(1, p.unrest || 0) * 100) + '%') : '') + (p.exports ? row('Exports', p.exports.join(', ') || '–') + row('Imports', p.imports.join(', ') || '–') : '') + (p.taxRate ? row('Taxes', `${Math.round(p.taxRate * 100)}% of usual`) + row('Debt', p.debt > 0.01 ? `${(p.debt / Math.max(0.01, p.income)).toFixed(1)} years of income, at ${Math.round((p.interest || 0) * 100)}%${p.defaults ? `, ${p.defaults} default${p.defaults > 1 ? 's' : ''}` : ''}` : 'none') : '') + (p.inst && Object.keys(p.inst).length ? row('Institutions', Object.keys(p.inst).map(k => INST_LABEL[k]).join(', ')) : '');
+    html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + row('Research / yr', (p.rpRate || 0).toFixed(0)) + (p.grainPrice ? row('Bread price', `${(p.grainPrice / world.priceLevel).toFixed(1)}× usual`) : '') + (p.classes ? row('Society', Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')) + row('Inequality', (p.gini || 0).toFixed(2)) + row('Unrest', Math.round(Math.min(1, p.unrest || 0) * 100) + '%') : '') + (p.exports ? row('Exports', p.exports.join(', ') || '–') + row('Imports', p.imports.join(', ') || '–') : '') + (p.taxRate ? row('Taxes', `${Math.round(p.taxRate * 100)}% of usual`) + row('Debt', p.debt > 0.01 ? `${(p.debt / Math.max(0.01, p.income)).toFixed(1)} years of income, at ${Math.round((p.interest || 0) * 100)}%${p.defaults ? `, ${p.defaults} default${p.defaults > 1 ? 's' : ''}` : ''}` : 'none') : '') + (p.ideo !== undefined ? row('Ruling idea', world.ideoName(p.ideo)) + (p.support ? row('Support', [...p.support].map((v, k) => [k, v]).filter(x => x[1] > 0.04).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${world.ideoName(k)} ${Math.round(v * 100)}%`).join(', ')) : '') + row('Nationhood', Math.round((p.nation || 0) * 100) + '%') + row('Toward its peoples', NATION_POLICY[p.nationPolicy || 'assimilate']) : '') + (p.inst && Object.keys(p.inst).length ? row('Institutions', Object.keys(p.inst).map(k => INST_LABEL[k]).join(', ')) : '');
     if (wars.length) html += row('At war with', wars.join(', '));
     if (p.ruler) html += row('Ruler', `${world._rulerTitle(p)}, ${p.ruler.age}`) + row('Traits', p.ruler.traits.join(', ')) + row('House', `${p.ruler.dynasty}${p.ruler.elected ? '' : ' (since ' + p.ruler.since + ')'}`);
     const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);
@@ -629,11 +633,13 @@ function renderPlayer() {
     <div class="crow" style="margin-top:6px"><select id="pa-war">${pOpts(nb.filter(q => !world.atWarWith(p.id, q.id)), 'no neighbours')}</select><button class="xs" id="pa-war-go">Declare war</button></div>
     <div class="crow"><select id="pa-peace">${pOpts(enemies, 'at peace')}</select><button class="xs" id="pa-peace-go">Offer peace</button></div>
     <div class="crow"><select id="pa-ally">${pOpts(allyC, 'nobody')}</select><button class="xs" id="pa-ally-go">Propose alliance</button>${al ? `<button class="xs" id="pa-leave">Leave ${al.name}</button>` : ''}</div>
+    <div class="crow"><label class="dim">Toward our peoples</label><select id="pa-nat">${Object.entries(NATION_POLICY).map(([k, v]) => `<option value="${k}" ${p.nationPolicy === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
     <div class="crow"><button class="xs" id="pa-council">Hold council now</button><button class="xs" id="pa-stop">Stop playing</button><span id="pa-msg" class="dim"></span></div>`;
   const P = () => world.polities[player.id], Q = id => world.polities[+id];
   const msg = t => { $('pa-msg').textContent = t; appendEvents(); colorsDirty = true; needsDraw = true; };
   $('pa-war-go').onclick = () => { const v = $('pa-war').value; if (v !== '') { world.playerDeclareWar(P(), Q(v)); msg('War declared.'); renderPlayer(); } };
   $('pa-peace-go').onclick = () => { const v = $('pa-peace').value; if (v !== '') { const r = world.playerOfferPeace(P(), Q(v)); msg(r === 'accepted' ? 'Peace accepted.' : 'They refuse.'); renderPlayer(); } };
+  $('pa-nat').onchange = () => { P().nationPolicy = $('pa-nat').value; msg('Policy changed.'); };
   $('pa-ally-go').onclick = () => { const v = $('pa-ally').value; if (v !== '') { const r = world.playerProposeAlliance(P(), Q(v)); msg(r === 'accepted' ? 'Alliance formed.' : r === 'rejected' ? 'They decline.' : 'Not possible.'); renderPlayer(); } };
   if ($('pa-leave')) $('pa-leave').onclick = () => { world.playerLeaveAlliance(P()); msg('You left the alliance.'); renderPlayer(); };
   $('pa-council').onclick = () => openPlayerCouncil();
@@ -799,7 +805,7 @@ function openCharts() {
   const top = world._largest().slice(0, 6);
   const sel = selected >= 0 && world.owner[selected] >= 0 ? world.polities[world.owner[selected]] : null;
   $('story-body').innerHTML = `<div class="crow" style="flex-wrap:wrap;gap:6px">
-      <select id="ch-what"><option value="states">Largest states now${sel ? ' + ' + sel.name : ''}</option><option value="faith">World faiths (share of people)</option><option value="fam">Language families (share of people)</option><option value="world">This world vs our world</option></select>
+      <select id="ch-what"><option value="states">Largest states now${sel ? ' + ' + sel.name : ''}</option><option value="faith">World faiths (share of people)</option><option value="fam">Language families (share of people)</option><option value="ideo">Ideologies (share of people)</option><option value="world">This world vs our world</option></select>
       <select id="ch-metric">${CH_METRICS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
       <label class="dim"><input type="checkbox" id="ch-log"> log scale</label></div>
     <canvas id="ch-cv" style="width:100%;height:300px;margin-top:8px"></canvas><div id="ch-leg" class="dim" style="line-height:1.7"></div><div id="ch-extra"></div>`;
@@ -812,11 +818,11 @@ function openCharts() {
       const list = [...top]; if (sel && !list.includes(sel)) list.push(sel);
       series = list.map((p, k) => ({ name: p.name, color: PAL[k % PAL.length], pts: (p.hist || []).map(h => [h[0], h[met[2]]]) }));
       pct = met[0] === 'urban' || met[0] === 'stab';
-    } else if (what === 'faith' || what === 'fam') {
-      const sh = world.shareHist || [], totals = {};
+    } else if (what === 'faith' || what === 'fam' || what === 'ideo') {
+      const sh = (world.shareHist || []).filter(h => h[what]), totals = {};
       for (const h of sh) { const t = Object.values(h[what]).reduce((a, b) => a + b, 0) || 1; for (const [k, v] of Object.entries(h[what])) totals[k] = Math.max(totals[k] || 0, v / t); }
       const keys = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k]) => k);
-      series = keys.map((k, n) => ({ name: what === 'faith' ? world.faiths[k].name : k, color: what === 'faith' ? world.faiths[k].color : world.FAMILY_COLORS[k] || PAL[n], pts: sh.map(h => { const t = Object.values(h[what]).reduce((a, b) => a + b, 0) || 1; return [h.y, (h[what][k] || 0) / t]; }) }));
+      series = keys.map((k, n) => ({ name: what === 'faith' ? world.faiths[k].name : what === 'ideo' ? world.ideoName(+k) : k, color: what === 'faith' ? world.faiths[k].color : what === 'ideo' ? IDEOS[k].color : world.FAMILY_COLORS[k] || PAL[n], pts: sh.map(h => { const t = Object.values(h[what]).reduce((a, b) => a + b, 0) || 1; return [h.y, (h[what][k] || 0) / t]; }) }));
       pct = true;
     } else {
       series = [{ name: 'This world: people', color: '#f2b544', pts: world.history.filter((h, k) => k % 5 === 0).map(h => [h.y, h.pop]) }, { name: 'Our world', color: 'rgba(255,255,255,.6)', dash: true, pts: REAL_POP.filter(r => r[0] <= world.year).map(r => [r[0], r[1] * 1e6]) }];

@@ -26,6 +26,12 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 - Grievances build up by class and end in peasant revolts, slave risings, strikes and revolutions that can change the government.
 - Big works: walls, canals, roads, harbours, temples and cathedrals, palaces, pyramids, railways and dams. They take years and money, can be abandoned, and help trade, reach or pride. They are shown on the map.
 
+**Ideas and nations**
+- Ideologies are born when their conditions first exist somewhere (liberalism needs print and merchants; socialism needs factories and workers; fascism needs defeat and hard times) and spread like faiths. In blind mode they get invented names.
+- Support is tracked per province from its classes and crises. Democracies hold elections; elsewhere radical ideas bring revolutions, purges, and revolutions exported to neighbours. Ideology changes research, war appetite, allies and enemies.
+- Nation-building: print, schools, railways and radio turn subjects into a nation. Each state chooses one nation, autonomy or repression toward its peoples (you choose, if you play it).
+- Royal houses marry; a line that dies out can pass to a married house (personal union) or start a war of succession. A League of Nations may form after a world war.
+
 **Food**
 - Farms, with yield set by soil and the year's weather.
 - Pasture, and fishing from stocks that regrow fastest when half full.
@@ -99,7 +105,7 @@ Only the population curve and the median tech dates are calibrated. Everything e
 
 ## Using it
 - **Playing:** open `index.html`. Drag to rotate, scroll to zoom, click land to inspect it.
-  - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, peoples, languages, language families, crops and animals, bread prices, inequality, government, resources, trade routes, wealth and fish.
+  - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, peoples, languages, language families, crops and animals, bread prices, inequality, ideologies, nationhood, government, resources, trade routes, wealth and fish.
 - **Chronicle:** filters, plus export to `.md` (readable) or `.json` (everything).
 - **Many worlds:** runs dozens of seeds in the background. Click a row to open that world.
 - **Play a state:** click a state, then *Play as this state*. Every council year (25 by default) the game pauses and you are the council: set the priority, declare war, make peace, join or leave alliances and write a proclamation. The YOU card also lets you act at any time. If your state falls you can take over its successor, pick another or just watch.
@@ -133,6 +139,7 @@ Tests: `node test/determinism.mjs`, and `node test/check-batch.mjs` after a batc
 - `src/politics.js`: rulers, dynasties, alliances, vassals, truces, great wars
 - `src/families.js`: the followed families
 - `src/economy.js`: crops and animals, prices and silver, classes, institutions, class revolts, big works
+- `src/ideologies.js`: ideologies, elections and revolutions, nation-building, marriages, the league
 - `src/peoples.js`: peoples, languages, assimilation, new peoples, identity revolts
 - `src/scenario.js`: editable data (techs, year-1 states, population, plagues, volcanoes, names)
 - `src/cities.js`: historic city sites
