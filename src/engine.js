@@ -6,6 +6,7 @@ import {
 import { CITY_SITES, cityName } from './cities.js';
 import { installSystems, GOVS, RES, RB } from './systems.js';
 import { installPolitics, TRAITS } from './politics.js';
+import { installFamilies } from './families.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -129,6 +130,7 @@ export class World {
     this._setup();
     this._sysInit();
     this._polInit();
+    this._famInit();
   }
 
   // ---------- setup ----------
@@ -390,6 +392,7 @@ export class World {
     this._expansion(y);
     this._contact(y);
     this._famineLog(y);
+    this._families(y);
     this.totals.famine += famineD; this.totals.war += warD; this.totals.plague += plagueD;
     this._record(famineD, warD, plagueD);
   }
@@ -1006,3 +1009,4 @@ export class World {
 }
 installSystems(World);
 installPolitics(World);
+installFamilies(World);

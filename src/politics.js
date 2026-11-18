@@ -36,6 +36,7 @@ export function installPolitics(World) {
     const parts = NAME_PARTS[culture] || NAME_PARTS.latin, r = this.rng;
     let n = parts[1].length ? r.pick(parts[0]) + r.pick(parts[1]) + r.pick(['s', 'n', 'r', 'o', 'a', 'us', 'ar', 'in', 'ek', 'ai', 'em']) : r.pick(parts[0]) + ' ' + r.pick(['Gao', 'Wen', 'Jing', 'Wu', 'Xuan', 'Zhao', 'Ming', 'Hui', 'Ping', 'Cheng']);
     n = n.charAt(0).toUpperCase() + n.slice(1);
+    n = n.replace(/(.)\1\1+/g, '$1$1');
     return n.length > 13 ? n.slice(0, 11) : n;
   };
 

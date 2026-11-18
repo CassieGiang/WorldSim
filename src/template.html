@@ -67,6 +67,10 @@
   #b-out th { text-align:left; color:var(--dim); font-weight:600; font-size:10px; letter-spacing:.06em; border-bottom:1px solid var(--line); padding:4px; }
   #b-out td { padding:3px 4px; border-bottom:1px solid rgba(255,255,255,.04); } #b-out tr[data-seed] { cursor:pointer; } #b-out tr[data-seed]:hover { background:rgba(242,181,68,.08); }
   .dim { color:var(--dim); }
+  .fam { padding:4px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:12px; } .famact { display:flex; gap:4px; margin-top:3px; }
+  #story { position:absolute; left:50%; top:40px; transform:translateX(-50%); width:min(620px, calc(100% - 80px)); max-height:calc(100% - 80px); overflow:auto; background:rgba(12,17,30,.97); border:1px solid var(--line); border-radius:10px; padding:14px 18px; display:none; z-index:6; line-height:1.6; }
+  #story.open { display:block; } #story p { margin:0 0 10px; }
+  .ev-family .et { color:#e9d6b8; }
   .chead { display:flex; align-items:center; gap:6px; margin-bottom:6px; } .chead h3 { margin:0; } button.xs { font-size:10px; padding:3px 7px; }
   .ev-council .et { color:#bfe3b0; } .ev .why { font-style:italic; }
   aside { overflow:auto; }
@@ -87,6 +91,7 @@
     <div class="grp"><label>Seed</label><input id="seed" type="number" value="1"><button id="newworld">New world</button></div>
   </header>
   <main>
+    <div id="story"><div class="bhead"><b id="story-title"></b><span style="flex:1"></span><button id="story-close">✕</button></div><div id="story-body"></div></div>
     <div id="batchpanel">
       <div class="bhead"><b>Many worlds</b><span class="hint">Same start, different luck. Runs in the background.</span><button id="b-close">✕</button></div>
       <div class="crow"><label>Worlds</label><input id="b-count" type="number" value="20" class="sm"><label>first seed</label><input id="b-first" type="number" value="1" class="sm"><label>to year</label><input id="b-year" type="number" value="2026" class="sm"><button id="b-run" class="primary">Run</button></div>
@@ -120,6 +125,7 @@
       <div class="crow llmonly"><input id="c-url" type="text" class="md" title="Ollama address" value="http://localhost:11434"><input id="c-model" type="text" class="md" title="Model name, e.g. qwen2.5:7b or qwen3:8b" value="qwen2.5:7b"><button id="c-test">Test</button></div>
       <div id="c-status" class="hint"></div>
     </div>
+    <div class="card"><h3>FAMILIES</h3><div id="families"></div></div>
     <div class="card"><h3>LARGEST STATES</h3><div id="states"></div></div>
     <div class="card" id="inspector"><div class="hint">Click land to inspect it.</div></div>
     <div id="logwrap">
@@ -134,6 +140,7 @@
           <label><input type="checkbox" id="f-states" checked> States</label>
           <label><input type="checkbox" id="f-nature" checked> Nature</label>
           <label><input type="checkbox" id="f-council" checked> Councils</label>
+          <label><input type="checkbox" id="f-family" checked> Families</label>
         </div>
       </div>
       <div id="log"></div>

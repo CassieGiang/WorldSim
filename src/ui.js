@@ -5,7 +5,7 @@ import { Globe } from './globe.js';
 import { World, fmt } from './engine.js';
 import { GOVS, RES } from './systems.js';
 import { TECHS, REAL_POP } from './scenario.js';
-import { askCouncil, listModels } from './council.js';
+import { askCouncil, listModels, writeFamilyStory } from './council.js';
 
 // ---------- state ----------
 const $ = id => document.getElementById(id);
@@ -200,7 +200,15 @@ function updatePanels() {
   // top states
   const top = world.polities.filter(p => p.alive).sort((a, b) => b.pop - a.pop).slice(0, 8);
   $('states').innerHTML = top.map(p => `<div class="st" data-pol="${p.id}"><span class="sw" style="background:${p.color}"></span><span class="nm">${p.name}</span><span class="v">${fmt(p.pop)}</span></div>`).join('');
+  renderFamilies();
   if (selected >= 0) showCell(selected);
+}
+function renderFamilies() {
+  if (!world.families) return;
+  $('families').innerHTML = world.families.map(f => {
+    const h = f.head, age = world.year - h.born;
+    return `<div class="fam" data-fam="${f.id}"><div><b>${h.given} ${f.surname}</b> <span class="dim">gen ${f.gen} · ${age}</span></div><div class="dim">${h.job}, ${world._place(f.cell)}</div><div class="famact"><button class="xs" data-act="go">Show</button><button class="xs" data-act="log">Story so far</button><button class="xs" data-act="ai">Write their story (AI)</button></div></div>`;
+  }).join('');
 }
 function drawChart() {
   const c = $('chart'), x = c.getContext('2d'), dpr = window.devicePixelRatio || 1;
@@ -218,12 +226,12 @@ function drawChart() {
   x.strokeStyle = '#f2b544'; x.lineWidth = 1.8; x.stroke();
   x.fillStyle = 'rgba(255,255,255,0.4)'; x.fillText(String(y0), 4, H - 3); x.textAlign = 'right'; x.fillText(String(y1), W - 4, H - 3); x.textAlign = 'left';
 }
-const ICON = { war: '⚔', peace: '🕊', famine: '🌾', plague: '☣', tech: '💡', split: '⚡', fall: '🏚', rise: '🏛', dynasty: '👑', disaster: '🌋', climate: '❄', contact: '⛵', colony: '⚓', annex: '➕', nuclear: '☢', start: '🌍', council: '📜', faith: '🕯', gov: '🏛', city: '🏙', sack: '🔥', ruler: '👑', alliance: '🤝', vassal: '⛓' };
-const GROUP = { war: 'war', peace: 'war', nuclear: 'war', famine: 'famine', plague: 'plague', tech: 'tech', split: 'states', fall: 'states', rise: 'states', dynasty: 'states', annex: 'states', colony: 'states', disaster: 'nature', climate: 'nature', contact: 'tech', start: 'states', council: 'council', faith: 'states', gov: 'states', city: 'states', sack: 'war', ruler: 'states', alliance: 'war', vassal: 'states' };
+const ICON = { war: '⚔', peace: '🕊', famine: '🌾', plague: '☣', tech: '💡', split: '⚡', fall: '🏚', rise: '🏛', dynasty: '👑', disaster: '🌋', climate: '❄', contact: '⛵', colony: '⚓', annex: '➕', nuclear: '☢', start: '🌍', council: '📜', faith: '🕯', gov: '🏛', city: '🏙', sack: '🔥', ruler: '👑', alliance: '🤝', vassal: '⛓', family: '👪' };
+const GROUP = { war: 'war', peace: 'war', nuclear: 'war', famine: 'famine', plague: 'plague', tech: 'tech', split: 'states', fall: 'states', rise: 'states', dynasty: 'states', annex: 'states', colony: 'states', disaster: 'nature', climate: 'nature', contact: 'tech', start: 'states', council: 'council', faith: 'states', gov: 'states', city: 'states', sack: 'war', ruler: 'states', alliance: 'war', vassal: 'states', family: 'family' };
 function eventVisible(e) {
   const g = GROUP[e.type] || 'states';
   if (!$('f-' + g).checked) return false;
-  if ($('f-big').checked && !e.big && !['tech', 'contact', 'nuclear', 'disaster', 'start', 'climate', 'council', 'faith'].includes(e.type) && !(e.type === 'plague' && e.deaths > 5e5) && !(e.type === 'peace' && e.deaths > 3e5) && !(e.type === 'famine' && e.deaths > 1e6)) return false;
+  if ($('f-big').checked && !e.big && !['tech', 'contact', 'nuclear', 'disaster', 'start', 'climate', 'council', 'faith', 'family'].includes(e.type) && !(e.type === 'plague' && e.deaths > 5e5) && !(e.type === 'peace' && e.deaths > 3e5) && !(e.type === 'famine' && e.deaths > 1e6)) return false;
   return true;
 }
 function appendEvents() {
@@ -308,7 +316,7 @@ $('speed').oninput = e => { speed = [1, 2, 5, 10, 20, 50, 100][+e.target.value];
 $('newworld').onclick = () => newWorld(Math.floor(Math.random() * 1e6));
 $('seed').onchange = e => newWorld(+e.target.value || 1);
 $('jump').onclick = () => { const to = +$('jumpto').value; if (to > world.year) { jumpTarget = to; playing = false; $('play').textContent = '▶ Play'; } };
-for (const id of ['f-war', 'f-famine', 'f-plague', 'f-tech', 'f-states', 'f-nature', 'f-council', 'f-big']) $(id).onchange = rebuildLog;
+for (const id of ['f-war', 'f-famine', 'f-plague', 'f-tech', 'f-states', 'f-nature', 'f-council', 'f-family', 'f-big']) $(id).onchange = rebuildLog;
 $('modes').innerHTML = Object.entries(MODES).map(([k, m]) => `<button data-mode="${k}" class="${k === mode ? 'on' : ''}">${m.label}</button>`).join('');
 $('modes').onclick = e => { const k = e.target.dataset.mode; if (!k) return; mode = k; colorsDirty = true; for (const b of $('modes').children) b.classList.toggle('on', b.dataset.mode === k); renderLegend(); needsDraw = true; };
 $('states').onclick = e => { const el = e.target.closest('.st'); if (!el) return; const p = world.polities[+el.dataset.pol]; if (p.capital >= 0) focusCell(p.capital); };
@@ -403,6 +411,26 @@ $('b-out').onclick = e => { const tr = e.target.closest('tr[data-seed]'); if (tr
 $('b-open').onclick = () => $('batchpanel').classList.toggle('open');
 $('b-close').onclick = () => $('batchpanel').classList.remove('open');
 
+// ---------- families ----------
+$('families').onclick = async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const f = world.families[+e.target.closest('.fam').dataset.fam];
+  if (b.dataset.act === 'go') { focusCell(f.cell); return; }
+  const box = $('story');
+  box.classList.add('open');
+  $('story-title').textContent = `The ${f.surname} family, ${f.log[0].y}–${world.year}`;
+  if (b.dataset.act === 'log') { $('story-body').innerHTML = f.log.map(x => `<p><b>${x.y}</b> ${x.text}</p>`).join(''); return; }
+  $('story-body').innerHTML = `<p class="dim">Asking ${council.model} to write the ${f.surname} story…</p>`;
+  try {
+    const txt = await writeFamilyStory({ url: council.url, model: council.model, surname: f.surname, record: world.familyStory(f) });
+    f.stories = f.stories || []; f.stories.push({ y: world.year, text: txt });
+    $('story-body').innerHTML = txt.split(/\n+/).map(p => `<p>${p}</p>`).join('');
+  } catch (err) {
+    $('story-body').innerHTML = `<p>Could not reach Ollama at ${council.url} (${err.message}). Check the Council settings and press Test. Meanwhile, here is the record:</p>` + f.log.map(x => `<p><b>${x.y}</b> ${x.text}</p>`).join('');
+  }
+};
+$('story-close').onclick = () => $('story').classList.remove('open');
+
 // ---------- export ----------
 function download(name, text, type) {
   const a = document.createElement('a');
@@ -426,6 +454,13 @@ $('x-md').onclick = () => {
   md += `- First contact across the ocean: ${i.contactYear ?? 'not yet'}\n`;
   md += `- Council: ${i.council.mode}${i.council.model ? ` (${i.council.model})` : ''}, every ${i.council.every} years, ${i.council.states} largest states\n\n`;
   md += `## Largest states in ${i.year}\n\n` + largest.map(p => `- ${p.name}: ${fmt(p.pop)}, ${p.cells} provinces, founded ${p.founded}${p.policy ? `, priority ${p.policy.focus}` : ''}`).join('\n') + '\n\n';
+  if (world.families) {
+    md += `## Families\n\n`;
+    for (const f of world.families) {
+      md += `### The ${f.surname} family (now generation ${f.gen}: ${f.head.given}, ${f.head.job})\n\n` + f.log.map(x => `- **${x.y}** ${x.text}`).join('\n') + '\n\n';
+      for (const st of f.stories || []) md += `> _Story written in ${st.y}:_\n>\n> ${st.text.replace(/\n+/g, '\n>\n> ')}\n\n`;
+    }
+  }
   const shown = world.events.filter(eventVisible);
   md += `## Chronicle (${shown.length} entries, current filters)\n\n`;
   for (const e of shown) md += `- **${e.y}** ${e.text}${e.ry ? ` _(our world: ${e.ry})_` : ''}${e.why ? `\n  - _Why:_ ${e.why}` : ''}\n`;

@@ -62,6 +62,12 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 - Badly beaten states may become tribute-paying vassals that fight their overlord's wars and revolt when strong.
 - Peace brings truces of 15–25 years.
 
+**Families**
+- Three families (on the Yellow River, in Campania, on the Ganges) are followed generation after generation.
+- Their lives are read off their province: famine, plague, war, sacked cities, new rulers, new faiths, inventions arriving in their lifetime, and fleeing hard times.
+- Their jobs follow their era: farmer, fisher, herder, scribe, smith, merchant, printer, sailor, factory worker, railway worker, nurse, teacher, programmer.
+- "Write their story" asks your local model to turn a family's record into prose.
+
 **Councils**
 - Off, rule-based, or **AI councils** using a local model through Ollama (e.g. Qwen). Every N years the largest states get a briefing and choose a priority: science, farming, army, expansion, stability or trade. They can also declare war, make peace, or propose and leave alliances, and they announce it in their ruler's voice.
 
@@ -93,6 +99,7 @@ To regenerate the map data (`src/world2.json`, `src/idmap.bin`, `src/elev.bin`):
 - `src/engine.js`: the core simulation (food, people, plagues, tech, states, war, cities, councils)
 - `src/systems.js`: resources, trade, money, religion, culture, governments
 - `src/politics.js`: rulers, dynasties, alliances, vassals, truces, great wars
+- `src/families.js`: the followed families
 - `src/scenario.js`: editable data (techs, year-1 states, population, plagues, volcanoes, names)
 - `src/cities.js`: historic city sites
 - `src/globe.js`: WebGL globe

@@ -73,3 +73,19 @@ function tidy(t, max) {
   const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
   return end > max * 0.25 ? cut.slice(0, end + 1) : cut.slice(0, cut.lastIndexOf(' ')) + '…';
 }
+
+// a short narrative of one family's history, written by the local model
+export async function writeFamilyStory({ url, model, surname, record, signal }) {
+  const body = {
+    model, stream: false, options: { temperature: 0.9 },
+    messages: [
+      { role: 'system', content: 'You are a historian-storyteller. Turn a family chronicle from a simulated world history into vivid, plain prose: 3 short paragraphs, about 220 words, past tense. Keep every fact (names, years, places, causes of death); invent only small human details (smells, objects, feelings). No headings, no lists.' },
+      { role: 'user', content: `The ${surname} family, as recorded:\n${record}` },
+    ],
+  };
+  if (/qwen3/i.test(model)) body.think = false;
+  const r = await fetch(url.replace(/\/$/, '') + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+  if (!r.ok) throw new Error(`Ollama answered ${r.status}`);
+  const j = await r.json();
+  return ((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
