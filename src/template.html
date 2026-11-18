@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorldSim</title>
+<style>
+  :root { --bg:#070b14; --panel:#0f1624; --line:#1f2a3d; --ink:#e9e4d6; --dim:#8a93a6; --gold:#f2b544; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:radial-gradient(ellipse at 40% 40%, #111a2e 0%, var(--bg) 70%); color:var(--ink); font:13px/1.4 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; overflow:hidden; }
+  #app { display:grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr; height:100vh; }
+  header { grid-column:1 / 3; display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid var(--line); background:rgba(8,12,22,.85); }
+  .brand { font-weight:800; letter-spacing:.12em; font-size:13px; color:var(--gold); }
+  .yearbox { background:#141d30; border:1px solid var(--line); border-radius:8px; padding:4px 14px; min-width:120px; text-align:center; }
+  .yearbox small { display:block; color:var(--dim); font-size:9px; letter-spacing:.15em; }
+  #year { font-size:24px; font-weight:800; font-variant-numeric:tabular-nums; }
+  button { background:#18233a; color:var(--ink); border:1px solid #2a3852; border-radius:6px; padding:6px 11px; font:inherit; cursor:pointer; }
+  button:hover { border-color:#4b628c; }
+  button.primary { background:var(--gold); color:#1a1205; border-color:var(--gold); font-weight:700; }
+  input[type=number] { width:80px; background:#0d1424; color:var(--ink); border:1px solid #2a3852; border-radius:6px; padding:6px 8px; font:inherit; }
+  .grp { display:flex; align-items:center; gap:6px; }
+  .grp label { color:var(--dim); font-size:11px; }
+  #speedv { color:var(--dim); font-size:11px; width:52px; }
+  #jumpinfo { color:var(--gold); font-size:11px; }
+  main { position:relative; overflow:hidden; }
+  #globe, #overlay { position:absolute; inset:0; } #overlay { cursor:grab; } .fatal { position:absolute; inset:40% 20% auto; padding:16px; background:#3a1414; border:1px solid #a33; border-radius:8px; }
+  #modes { position:absolute; left:12px; top:12px; display:flex; flex-direction:column; gap:4px; }
+  #modes button { font-size:11px; padding:5px 9px; text-align:left; background:rgba(15,22,36,.85); }
+  #modes button.on { border-color:var(--gold); color:var(--gold); }
+  #legend { position:absolute; left:12px; bottom:12px; max-width:calc(100% - 330px); display:flex; flex-wrap:wrap; gap:4px 12px; font-size:11px; color:var(--dim); } #legend i { display:inline-block; width:12px; height:12px; border-radius:2px; margin-right:5px; vertical-align:-2px; }
+  aside { border-left:1px solid var(--line); background:rgba(10,15,26,.92); display:flex; flex-direction:column; min-height:0; }
+  .card { padding:10px 14px; border-bottom:1px solid var(--line); }
+  .card h3 { margin:0 0 6px; font-size:10px; letter-spacing:.16em; color:var(--dim); font-weight:700; }
+  .stats { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px 10px; }
+  .stats div span { display:block; color:var(--dim); font-size:10px; }
+  .stats div b { font-size:14px; font-variant-numeric:tabular-nums; }
+  #chart { width:100%; height:70px; display:block; margin-top:6px; }
+  .chartkey { font-size:10px; color:var(--dim); } .chartkey i { display:inline-block; width:14px; height:2px; vertical-align:middle; margin:0 4px 0 8px; }
+  .deaths { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:11px; color:var(--dim); margin-top:4px; } .deaths b { color:var(--ink); }
+  .st { display:flex; align-items:center; gap:8px; padding:2px 0; cursor:pointer; font-size:12px; }
+  .st .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .st .v { color:var(--dim); font-variant-numeric:tabular-nums; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:2px; flex:none; margin-right:6px; vertical-align:middle; }
+  #inspector { max-height:230px; overflow:auto; }
+  #inspector .ihead { font-weight:700; font-size:14px; }
+  #inspector .isub { color:var(--dim); font-size:11px; margin-bottom:6px; }
+  .kv { display:flex; justify-content:space-between; font-size:12px; padding:1px 0; } .kv span { color:var(--dim); } .kv b { font-weight:600; text-align:right; max-width:60%; }
+  .isec { margin-top:8px; font-size:10px; letter-spacing:.14em; color:var(--dim); font-weight:700; }
+  .techs { font-size:11px; color:#b9c0cf; max-height:64px; overflow:auto; }
+  .hint { color:var(--dim); font-size:12px; }
+  .filters { display:flex; flex-wrap:wrap; gap:4px 10px; font-size:11px; color:var(--dim); }
+  .filters label { cursor:pointer; }
+  #logwrap { flex:1; min-height:0; display:flex; flex-direction:column; }
+  #log { flex:1; overflow:auto; padding:4px 10px 12px 14px; }
+  .ev { display:grid; grid-template-columns:38px 18px 1fr; gap:4px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,.04); font-size:12px; cursor:pointer; }
+  .ev:hover { background:rgba(255,255,255,.03); }
+  .ey { color:var(--dim); font-variant-numeric:tabular-nums; } .ev.big .et { color:#fff; font-weight:600; }
+  .ev-war .et, .ev-nuclear .et { color:#f0a49a; } .ev-famine .et { color:#f2cf8c; } .ev-plague .et { color:#d3a6e6; } .ev-tech .et { color:#9fdcf0; }
+  .ry { display:block; color:var(--dim); font-size:10px; font-weight:400; }
+  .crow { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:6px; font-size:11px; color:var(--dim); }
+  select, input[type=text] { background:#0d1424; color:var(--ink); border:1px solid #2a3852; border-radius:6px; padding:5px 7px; font:inherit; font-size:12px; }
+  input.sm { width:54px; padding:4px 6px; } input.md { width:150px; }
+  #c-status { font-size:11px; }
+  #batchpanel { position:absolute; right:12px; top:12px; width:min(680px, calc(100% - 200px)); max-height:calc(100% - 24px); overflow:auto; background:rgba(10,15,26,.97); border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:none; z-index:5; }
+  #batchpanel.open { display:block; }
+  .bhead { display:flex; align-items:center; gap:10px; margin-bottom:8px; } .bhead .hint { flex:1; font-size:11px; }
+  #b-out table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; font-variant-numeric:tabular-nums; }
+  #b-out th { text-align:left; color:var(--dim); font-weight:600; font-size:10px; letter-spacing:.06em; border-bottom:1px solid var(--line); padding:4px; }
+  #b-out td { padding:3px 4px; border-bottom:1px solid rgba(255,255,255,.04); } #b-out tr[data-seed] { cursor:pointer; } #b-out tr[data-seed]:hover { background:rgba(242,181,68,.08); }
+  .dim { color:var(--dim); }
+  .chead { display:flex; align-items:center; gap:6px; margin-bottom:6px; } .chead h3 { margin:0; } button.xs { font-size:10px; padding:3px 7px; }
+  .ev-council .et { color:#bfe3b0; } .ev .why { font-style:italic; }
+  aside { overflow:auto; }
+  .note { position:absolute; right:12px; bottom:10px; font-size:10px; color:#5c667a; text-align:right; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">WORLDSIM</div>
+    <div class="yearbox"><small>YEAR</small><span id="year">1</span></div>
+    <button id="play" class="primary">▶ Play</button>
+    <button id="step">+1 year</button>
+    <div class="grp"><label>Speed</label><input id="speed" type="range" min="0" max="6" value="3"><span id="speedv">10 yr/s</span></div>
+    <div class="grp"><label>Run to</label><input id="jumpto" type="number" value="1500"><button id="jump">Go</button><span id="jumpinfo"></span></div>
+    <div style="flex:1"></div>
+    <button id="b-open">Many worlds</button>
+    <div class="grp"><label>Seed</label><input id="seed" type="number" value="1"><button id="newworld">New world</button></div>
+  </header>
+  <main>
+    <div id="batchpanel">
+      <div class="bhead"><b>Many worlds</b><span class="hint">Same start, different luck. Runs in the background.</span><button id="b-close">✕</button></div>
+      <div class="crow"><label>Worlds</label><input id="b-count" type="number" value="20" class="sm"><label>first seed</label><input id="b-first" type="number" value="1" class="sm"><label>to year</label><input id="b-year" type="number" value="2026" class="sm"><button id="b-run" class="primary">Run</button></div>
+      <div id="b-sum" class="hint"></div>
+      <div id="b-out"></div>
+    </div>
+    <canvas id="globe"></canvas><canvas id="overlay"></canvas>
+    <div id="modes"></div>
+    <div id="legend"></div>
+    <div class="note">Drag to rotate · scroll to zoom · click land to inspect<br>Climate: Beck et al. 2018 Köppen-Geiger · relief: NOAA ETOPO1</div>
+  </main>
+  <aside>
+    <div class="card">
+      <h3>WORLD</h3>
+      <div class="stats">
+        <div><span>People</span><b id="s-pop">–</b></div>
+        <div><span>Our world</span><b id="s-real">–</b></div>
+        <div><span>In towns</span><b id="s-urban">–</b></div>
+        <div><span>States</span><b id="s-states">–</b></div>
+        <div><span>Wars now</span><b id="s-wars">–</b></div>
+        <div><span>Top tech</span><b id="s-tech">–</b></div>
+      </div>
+      <canvas id="chart"></canvas>
+      <div class="chartkey"><i style="background:#f2b544"></i>this world<i style="background:rgba(255,255,255,.5)"></i>our world (people, log scale)</div>
+      <div class="deaths"><span>Starved <b id="d-famine">0</b></span><span>Killed in war <b id="d-war">0</b></span><span>Plague <b id="d-plague">0</b></span></div>
+    </div>
+    <div class="card">
+      <h3>COUNCIL</h3>
+      <div class="crow"><select id="c-mode"><option value="off">Off: pure simulation</option><option value="rules">Rule-based councils</option><option value="llm">AI councils (Ollama)</option></select>
+      </div><div class="crow"><label>every</label><input id="c-every" type="number" min="5" value="25" class="sm"><label>years, for the</label><input id="c-size" type="number" min="1" max="12" value="5" class="sm"><label>largest states</label></div>
+      <div class="crow llmonly"><input id="c-url" type="text" class="md" title="Ollama address" value="http://localhost:11434"><input id="c-model" type="text" class="md" title="Model name, e.g. qwen2.5:7b or qwen3:8b" value="qwen2.5:7b"><button id="c-test">Test</button></div>
+      <div id="c-status" class="hint"></div>
+    </div>
+    <div class="card"><h3>LARGEST STATES</h3><div id="states"></div></div>
+    <div class="card" id="inspector"><div class="hint">Click land to inspect it.</div></div>
+    <div id="logwrap">
+      <div class="card" style="border-bottom:none;padding-bottom:4px">
+        <div class="chead"><h3>CHRONICLE</h3><span style="flex:1"></span><button id="x-md" class="xs" title="Save what the chronicle shows now, as readable text">Export .md</button><button id="x-json" class="xs" title="Save the whole run: every event, council reasoning, yearly world stats">Export .json</button></div>
+        <div class="filters">
+          <label><input type="checkbox" id="f-big" checked> Major only</label>
+          <label><input type="checkbox" id="f-war" checked> Wars</label>
+          <label><input type="checkbox" id="f-famine" checked> Famine</label>
+          <label><input type="checkbox" id="f-plague" checked> Plague</label>
+          <label><input type="checkbox" id="f-tech" checked> Inventions</label>
+          <label><input type="checkbox" id="f-states" checked> States</label>
+          <label><input type="checkbox" id="f-nature" checked> Nature</label>
+          <label><input type="checkbox" id="f-council" checked> Councils</label>
+        </div>
+      </div>
+      <div id="log"></div>
+    </div>
+  </aside>
+</div>
+<script>/*BUNDLE*/</script>
+</body>
+</html>

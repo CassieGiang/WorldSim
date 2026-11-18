@@ -1,0 +1,7 @@
+node_modules/
+dist/
+batches/
+*.npy
+*.tif
+*.jpg
+leadrp_*.json
