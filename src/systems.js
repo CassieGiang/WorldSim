@@ -198,8 +198,19 @@ export function installSystems(World) {
   // ---------------- religion ----------------
   P._religion = function (y) {
     const rng = this.rng, N = this.N;
-    for (const pr of PROPHETS) if (pr.year === y) {
-      const c = this._nearest(pr.at[0], pr.at[1]);
+    const prophets = this.sched && this.sched.prophets ? this.sched.prophets : PROPHETS;
+    for (const pr0 of prophets) if (pr0.year === y) {
+      const pr = { ...pr0 };
+      let c;
+      if (pr.at) c = this._nearest(pr.at[0], pr.at[1]);
+      else {
+        // blind mode: a prophet appears in a literate town somewhere
+        const towns = this.cities.filter(t => t.alive && this.cellTech[t.cell][T.writing]);
+        if (!towns.length) continue;
+        c = this.rng.pick(towns).cell;
+        const parts = NAME_PARTS[this.culture[c]] || NAME_PARTS.latin, root = this.rng.pick(parts[0]) + (parts[1][0] || 'a');
+        pr.name = this.rng.next() < 0.5 ? root.charAt(0).toUpperCase() + root.slice(1) + 'ism' : `the Way of ${root.charAt(0).toUpperCase() + root.slice(1)}`;
+      }
       const k = this._addFaith({ ...pr, universal: true }, y);
       this.rel[c] = k; this.relStr[c] = 0.3;
       for (const j of this.nb[c]) if (rng.next() < 0.4) { this.rel[j] = k; this.relStr[j] = 0.2; }

@@ -1,11 +1,13 @@
 import geo from './world2.json';
-import idBin from './idmap.bin';
-import elevBin from './elev.bin';
+import idBin from './idmap4k.bin';
+import shadeJpg from './shade.jpg';
+import riversPng from './rivers.png';
 import { Globe } from './globe.js';
 import { World, fmt } from './engine.js';
 import { GOVS, RES } from './systems.js';
 import { TECHS, REAL_POP } from './scenario.js';
 import { askCouncil, listModels, writeFamilyStory } from './council.js';
+import { FAMILY_TRAITS } from './families.js';
 
 // ---------- state ----------
 const $ = id => document.getElementById(id);
@@ -13,15 +15,20 @@ let world, playing = false, speed = 10, mode = 'political', selected = -1, needs
 let rot = [-60, -25], scale = 1;
 const store = { get: (k, d) => { try { const v = localStorage.getItem('worldsim.' + k); return v === null ? d : v; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem('worldsim.' + k, v); } catch {} } };
 const council = { mode: store.get('cmode', 'off'), every: +store.get('cevery', 25), size: +store.get('csize', 5), url: store.get('curl', 'http://localhost:11434'), model: store.get('cmodel', 'qwen2.5:7b'), busy: false, held: -1, errors: 0 };
-function worldOpts() { return { council: council.mode === 'rules' ? 'rules' : null, councilEvery: council.every, councilSize: council.size }; }
+function worldOpts() { return { blind: $('blind') && $('blind').checked, council: council.mode === 'rules' ? 'rules' : null, councilEvery: council.every, councilSize: council.size }; }
 const canvas = $('overlay');
 let globe = null, colorsDirty = true;
+const player = { id: -1, held: -1, busy: false, fallen: false };
+const famUI = { picking: false, saved: (() => { try { return JSON.parse(store.get('families', '[]')); } catch { return []; } })(), builtin: store.get('builtinFam', '1') === '1' };
+const saveFamStore = () => store.set('families', JSON.stringify(famUI.saved));
 
 function newWorld(seed) {
   world = new World(geo, seed, worldOpts());
-  council.held = -1;
+  council.held = -1; player.id = -1; player.held = -1; player.busy = false; world.playerId = -1; renderPlayer();
   selected = -1; lastEventCount = 0; $('log').innerHTML = ''; spin = null;
   $('seed').value = seed;
+  if (!famUI.builtin) for (const f of world.families || []) { f.alive = false; f.removed = true; }
+  for (const sf of famUI.saved.filter(x => x.auto)) world.addFamily({ ...sf, cell: world._nearest(sf.lon, sf.lat) });
   appendEvents(); updatePanels(); needsDraw = true; colorsDirty = true;
 }
 
@@ -201,14 +208,17 @@ function updatePanels() {
   const top = world.polities.filter(p => p.alive).sort((a, b) => b.pop - a.pop).slice(0, 8);
   $('states').innerHTML = top.map(p => `<div class="st" data-pol="${p.id}"><span class="sw" style="background:${p.color}"></span><span class="nm">${p.name}</span><span class="v">${fmt(p.pop)}</span></div>`).join('');
   renderFamilies();
+  if (player.id >= 0 && !player.busy && !$('playerbox').contains(document.activeElement)) renderPlayer();
   if (selected >= 0) showCell(selected);
 }
 function renderFamilies() {
   if (!world.families) return;
-  $('families').innerHTML = world.families.map(f => {
+  const html = world.families.filter(f => !f.removed).map(f => {
     const h = f.head, age = world.year - h.born;
-    return `<div class="fam" data-fam="${f.id}"><div><b>${h.given} ${f.surname}</b> <span class="dim">gen ${f.gen} · ${age}</span></div><div class="dim">${h.job}, ${world._place(f.cell)}</div><div class="famact"><button class="xs" data-act="go">Show</button><button class="xs" data-act="log">Story so far</button><button class="xs" data-act="ai">Write their story (AI)</button></div></div>`;
+    const tr = f.traits && f.traits.length ? ` · <i>${f.traits.join(', ')}</i>` : '';
+    return `<div class="fam" data-fam="${f.id}"><div><b>${h.given} ${f.surname}</b> <span class="dim">gen ${f.gen} · ${age}${f.guided ? ' · guided' : ''}</span></div><div class="dim">${h.job}, ${world._place(f.cell)}${tr}</div><div class="famact"><button class="xs" data-act="go">Show</button><button class="xs" data-act="log">Story so far</button><button class="xs" data-act="ai">Write their story (AI)</button><button class="xs" data-act="guide">${f.guided ? 'Stop guiding' : 'Guide'}</button>${f.custom ? '<button class="xs" data-act="save">Save</button>' : ''}<button class="xs" data-act="rm">Remove</button></div></div>`;
   }).join('');
+  if ($('families').dataset.h !== html) { $('families').innerHTML = html; $('families').dataset.h = html; }
 }
 function drawChart() {
   const c = $('chart'), x = c.getContext('2d'), dpr = window.devicePixelRatio || 1;
@@ -273,6 +283,7 @@ function showCell(i) {
     const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);
     if (p.overlord != null) html += row('Vassal of', world.polities[p.overlord].name);
     const vs = world.polities.filter(q => q.alive && q.overlord === p.id); if (vs.length) html += row('Vassals', vs.map(q => q.name).join(', '));
+    html += `<div style="margin:6px 0"><button class="xs" data-play="${p.id}">${player.id === p.id ? 'You rule this state' : '▶ Play as this state'}</button></div>`;
     if (p.policy) html += row('Council priority', p.policy.focus + (p.policy.source === 'llm' ? ' (AI)' : ''));
   }
   html += `<div class="isec">Knows (${c.known})</div><div class="techs">${c.techs.join(' · ')}</div>`;
@@ -302,12 +313,13 @@ canvas.addEventListener('pointerup', e => {
   if (drag && !drag.moved) {
     const r = canvas.getBoundingClientRect(), ll = globe.invert(e.clientX - r.left, e.clientY - r.top);
     const id = ll ? globe.idAt(ll[0], ll[1]) : 65535;
-    if (id < world.N) { selected = id; showCell(id); } else { selected = -1; $('inspector').innerHTML = '<div class="hint">Click land to inspect it.</div>'; }
+    if (id < world.N && famUI.picking) { famUI.picking = false; selected = id; showCell(id); openAddFamily(id); }
+    else if (id < world.N) { selected = id; showCell(id); } else { selected = -1; $('inspector').innerHTML = '<div class="hint">Click land to inspect it.</div>'; }
     needsDraw = true;
   }
   drag = null;
 });
-canvas.addEventListener('wheel', e => { e.preventDefault(); globe.view.scale = Math.max(0.7, Math.min(4, globe.view.scale * Math.exp(-e.deltaY * 0.0012))); needsDraw = true; }, { passive: false });
+canvas.addEventListener('wheel', e => { e.preventDefault(); globe.view.scale = Math.max(0.7, Math.min(10, globe.view.scale * Math.exp(-e.deltaY * 0.0012))); needsDraw = true; }, { passive: false });
 window.addEventListener('resize', resize);
 
 $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '❚❚ Pause' : '▶ Play'; };
@@ -416,6 +428,14 @@ $('families').onclick = async e => {
   const b = e.target.closest('button'); if (!b) return;
   const f = world.families[+e.target.closest('.fam').dataset.fam];
   if (b.dataset.act === 'go') { focusCell(f.cell); return; }
+  if (b.dataset.act === 'guide') { f.guided = !f.guided; renderFamilies(); return; }
+  if (b.dataset.act === 'rm') { f.alive = false; f.removed = true; world.familyPrompts = (world.familyPrompts || []).filter(q => q.fam !== f.id); renderFamilies(); return; }
+  if (b.dataset.act === 'save') {
+    const first = f.firstHead || f.head;
+    famUI.saved = famUI.saved.filter(x => x.surname !== f.surname);
+    famUI.saved.push({ surname: f.surname, given: first.given, sex: first.sex, job: first.job, traits: f.startTraits || f.traits, guided: f.guided, lon: world.lon[f.startCell ?? f.cell], lat: world.lat[f.startCell ?? f.cell], auto: true });
+    saveFamStore(); renderSaved(); b.textContent = 'Saved ✓'; return;
+  }
   const box = $('story');
   box.classList.add('open');
   $('story-title').textContent = `The ${f.surname} family, ${f.log[0].y}–${world.year}`;
@@ -430,6 +450,60 @@ $('families').onclick = async e => {
   }
 };
 $('story-close').onclick = () => $('story').classList.remove('open');
+
+const esc = t => String(t).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+function renderSaved() {
+  $('fam-saved').innerHTML = famUI.saved.length ? '<div class="dim" style="margin-top:6px">Saved families (start in every new world):</div>' + famUI.saved.map((x, k) => `<div class="crow"><span>${esc(x.given)} ${esc(x.surname)}</span><span style="flex:1"></span><button class="xs" data-sv="${k}" data-a="add">Add now</button><button class="xs" data-sv="${k}" data-a="del">Forget</button></div>`).join('') : '';
+}
+$('fam-saved').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return; const k = +b.dataset.sv, x = famUI.saved[k];
+  if (b.dataset.a === 'del') famUI.saved.splice(k, 1), saveFamStore();
+  else { world.addFamily({ ...x, cell: world._nearest(x.lon, x.lat) }); appendEvents(); }
+  renderSaved(); renderFamilies();
+};
+$('fam-builtin').checked = famUI.builtin;
+$('fam-builtin').onchange = () => { famUI.builtin = $('fam-builtin').checked; store.set('builtinFam', famUI.builtin ? '1' : '0'); };
+$('fam-add').onclick = () => {
+  if (selected >= 0) openAddFamily(selected);
+  else { famUI.picking = true; $('inspector').innerHTML = '<div class="hint">Click the province where your family lives.</div>'; }
+};
+function openAddFamily(c) {
+  const jobs = world.jobOptions(c);
+  $('story-title').textContent = `A new family in ${world._place(c)} (${world.year})`;
+  $('story-body').innerHTML = `
+    <div class="crow"><label>Surname <input id="nf-sur" placeholder="leave empty for a local name"></label></div>
+    <div class="crow"><label>Given name <input id="nf-giv" placeholder="leave empty for a local name"></label>
+      <label>Sex <select id="nf-sex"><option value="f">woman</option><option value="m">man</option></select></label></div>
+    <div class="crow"><label>Work <select id="nf-job">${jobs.map(j => `<option>${j}</option>`).join('')}</select></label></div>
+    <div class="dim" style="margin:6px 0 2px">Traits (run in the family, may fade or appear over generations)</div>
+    ${Object.entries(FAMILY_TRAITS).map(([t, d]) => `<label style="display:block"><input type="checkbox" class="nf-tr" value="${t}"> <b>${t}</b> <span class="dim">— ${d}</span></label>`).join('')}
+    <label style="display:block;margin-top:8px"><input type="checkbox" id="nf-guide"> Guide them: pause and let me choose at famines, wars, new chances and each coming of age</label>
+    <label style="display:block"><input type="checkbox" id="nf-save"> Save this family and start it in every new world</label>
+    <div class="crow" style="margin-top:10px"><button class="primary" id="nf-go">Add the family</button><button id="nf-other">Pick another province</button></div>`;
+  $('story').classList.add('open');
+  $('nf-other').onclick = () => { $('story').classList.remove('open'); famUI.picking = true; $('inspector').innerHTML = '<div class="hint">Click the province where your family lives.</div>'; };
+  $('nf-go').onclick = () => {
+    const traits = [...document.querySelectorAll('.nf-tr:checked')].map(x => x.value);
+    const spec = { surname: $('nf-sur').value.trim(), given: $('nf-giv').value.trim(), sex: $('nf-sex').value, job: $('nf-job').value, traits, guided: $('nf-guide').checked };
+    const f = world.addFamily({ ...spec, cell: c });
+    if ($('nf-save').checked) { famUI.saved = famUI.saved.filter(x => x.surname !== f.surname); famUI.saved.push({ ...spec, surname: f.surname, given: f.head.given, lon: world.lon[c], lat: world.lat[c], auto: true }); saveFamStore(); renderSaved(); }
+    $('story').classList.remove('open'); appendEvents(); renderFamilies();
+  };
+}
+// a guided family needs a decision: pause and ask
+function openFamilyPrompt() {
+  const q = world.familyPrompts[0], f = world.families[q.fam];
+  player.busy = true;
+  $('story-title').textContent = `The ${f.surname} family, ${world.year}`;
+  const recent = f.log.slice(-4).map(x => `<p class="dim"><b>${x.y}</b> ${x.text}</p>`).join('');
+  $('story-body').innerHTML = recent + `<p><b>${q.text}</b></p><div class="crow" style="flex-wrap:wrap">${q.options.map(o => `<button data-k="${o.key}">${esc(o.label)}</button>`).join('')}</div>
+    <p class="dim" style="margin-top:8px"><a href="#" id="fp-auto">Let them decide for themselves from now on</a></p>`;
+  $('story').classList.add('open'); $('story-close').style.display = 'none';
+  const done = () => { $('story').classList.remove('open'); $('story-close').style.display = ''; player.busy = false; appendEvents(); renderFamilies(); };
+  $('story-body').querySelectorAll('button[data-k]').forEach(b => b.onclick = () => { world.resolveFamily(q, b.dataset.k); done(); });
+  $('fp-auto').onclick = ev => { ev.preventDefault(); f.guided = false; world.resolveFamily(q, q.options[0].key); done(); };
+}
+renderSaved();
 
 // ---------- export ----------
 function download(name, text, type) {
@@ -478,6 +552,87 @@ $('x-json').onclick = () => {
   download(`worldsim_seed${i.seed}_year${i.year}.json`, JSON.stringify(data, null, 1), 'application/json');
 };
 
+// ---------- player mode ----------
+function setPlayer(id) {
+  player.id = id; world.playerId = id; player.held = world.year; player.fallen = false;
+  renderPlayer(); if (selected >= 0) showCell(selected);
+  if (id >= 0) world._log('council', `You take the throne of ${world.polities[id].name}.`, { pol: id, big: true });
+  appendEvents();
+}
+$('inspector').addEventListener('click', e => { const b = e.target.closest('[data-play]'); if (b) setPlayer(+b.dataset.play); });
+const pOpts = (list, empty) => list.length ? list.map(q => `<option value="${q.id}">${q.name}</option>`).join('') : `<option value="">${empty}</option>`;
+function renderPlayer() {
+  const box = $('playerbox');
+  if (player.id < 0) { box.innerHTML = '<div class="hint">Click a state and press <b>Play as this state</b> to rule it yourself. Its council then pauses for you.</div>'; return; }
+  const p = world.polities[player.id];
+  if (!p.alive) { box.innerHTML = `<div class="hint">${p.name} has fallen.</div>`; return; }
+  const nb = [...p.neighbours].map(q => world.polities[q]).filter(q => q.alive);
+  const enemies = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a]);
+  const near = new Set(nb.map(q => q.id)); for (const q of nb) for (const r of q.neighbours) near.add(r);
+  const allyC = [...near].map(q => world.polities[q]).filter(q => q.alive && q.id !== p.id && !world.allied(p.id, q.id) && !world.atWarWith(p.id, q.id) && q.overlord == null).sort((a, b) => b.pop - a.pop).slice(0, 15);
+  const al = world.allianceOf(p.id);
+  const next = Math.ceil((world.year + 1) / council.every) * council.every;
+  box.innerHTML = `<div><span class="sw" style="background:${p.color}"></span><b>${p.name}</b></div>
+    <div class="dim">${world._rulerTitle(p)} · ${fmt(p.pop)} · stability ${Math.round(p.stability * 100)}% · priority: ${p.policy ? p.policy.focus : '–'} · next council ${next}</div>
+    <div class="crow" style="margin-top:6px"><select id="pa-war">${pOpts(nb.filter(q => !world.atWarWith(p.id, q.id)), 'no neighbours')}</select><button class="xs" id="pa-war-go">Declare war</button></div>
+    <div class="crow"><select id="pa-peace">${pOpts(enemies, 'at peace')}</select><button class="xs" id="pa-peace-go">Offer peace</button></div>
+    <div class="crow"><select id="pa-ally">${pOpts(allyC, 'nobody')}</select><button class="xs" id="pa-ally-go">Propose alliance</button>${al ? `<button class="xs" id="pa-leave">Leave ${al.name}</button>` : ''}</div>
+    <div class="crow"><button class="xs" id="pa-council">Hold council now</button><button class="xs" id="pa-stop">Stop playing</button><span id="pa-msg" class="dim"></span></div>`;
+  const P = () => world.polities[player.id], Q = id => world.polities[+id];
+  const msg = t => { $('pa-msg').textContent = t; appendEvents(); colorsDirty = true; needsDraw = true; };
+  $('pa-war-go').onclick = () => { const v = $('pa-war').value; if (v !== '') { world.playerDeclareWar(P(), Q(v)); msg('War declared.'); renderPlayer(); } };
+  $('pa-peace-go').onclick = () => { const v = $('pa-peace').value; if (v !== '') { const r = world.playerOfferPeace(P(), Q(v)); msg(r === 'accepted' ? 'Peace accepted.' : 'They refuse.'); renderPlayer(); } };
+  $('pa-ally-go').onclick = () => { const v = $('pa-ally').value; if (v !== '') { const r = world.playerProposeAlliance(P(), Q(v)); msg(r === 'accepted' ? 'Alliance formed.' : r === 'rejected' ? 'They decline.' : 'Not possible.'); renderPlayer(); } };
+  if ($('pa-leave')) $('pa-leave').onclick = () => { world.playerLeaveAlliance(P()); msg('You left the alliance.'); renderPlayer(); };
+  $('pa-council').onclick = () => openPlayerCouncil();
+  $('pa-stop').onclick = () => setPlayer(-1);
+}
+function openPlayerCouncil() {
+  const p = world.polities[player.id]; if (!p || !p.alive) return;
+  player.busy = true; player.held = world.year;
+  const nb = [...p.neighbours].map(q => world.polities[q]).filter(q => q.alive && !world.atWarWith(p.id, q.id));
+  const enemies = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a]);
+  const near = new Set([...p.neighbours]); for (const q of p.neighbours) for (const r of world.polities[q].neighbours) near.add(r);
+  const allyC = [...near].map(q => world.polities[q]).filter(q => q.alive && q.id !== p.id && !world.allied(p.id, q.id) && !world.atWarWith(p.id, q.id) && q.overlord == null).sort((a, b) => b.pop - a.pop).slice(0, 15);
+  const F = [['science', 'Learning: fund scholars'], ['farming', 'Farming: clear land, fill granaries'], ['army', 'The army: raise soldiers'], ['expansion', 'Expansion: push into unclaimed land'], ['stability', 'Order at home: calm the provinces'], ['trade', 'Trade: roads, ships, markets']];
+  $('story-title').textContent = `Council of ${p.name}, year ${world.year}`;
+  $('story-body').innerHTML = `<pre class="brief">${world.brief(p).replace(/</g, '&lt;')}</pre>
+    <div class="isec">Priority for the next ${council.every} years</div>
+    ${F.map(([k, l], n) => `<label class="opt"><input type="radio" name="pc-focus" value="${k}" ${p.policy && p.policy.focus === k || (!p.policy && n === 4) ? 'checked' : ''}> ${l}</label>`).join('')}
+    <div class="isec">Diplomacy</div>
+    <div class="crow"><label>Declare war on</label><select id="pc-war"><option value="">nobody</option>${nb.map(q => `<option value="${q.name}">${q.name}</option>`).join('')}</select></div>
+    <div class="crow"><label>Make peace with</label><select id="pc-peace"><option value="">nobody</option>${enemies.map(q => `<option value="${q.name}">${q.name}</option>`).join('')}</select></div>
+    <div class="crow"><label>Propose alliance to</label><select id="pc-ally"><option value="">nobody</option>${allyC.map(q => `<option value="${q.name}">${q.name}</option>`).join('')}</select></div>
+    <div class="isec">Proclamation (optional, goes into the chronicle)</div>
+    <input type="text" id="pc-say" class="md" style="width:100%" maxlength="220" placeholder="Let the granaries be full and the borders quiet…">
+    <div style="margin-top:10px"><button class="primary" id="pc-go">Decide</button></div>`;
+  $('story').classList.add('open'); $('story-close').style.display = 'none';
+  $('pc-go').onclick = () => {
+    const d = { focus: (document.querySelector('input[name=pc-focus]:checked') || {}).value || 'stability', war_target: $('pc-war').value || null, peace_with: $('pc-peace').value ? [$('pc-peace').value] : [], alliance_with: $('pc-ally').value || null, statement: $('pc-say').value.trim(), reasoning: '' };
+    // peace via the council is an offer the other side may refuse
+    const peace = d.peace_with[0]; d.peace_with = [];
+    world.applyDecision(p, d, 'player');
+    if (peace) { const q = world.polities.find(x => x.alive && x.name === peace); if (q) world.playerOfferPeace(p, q); }
+    $('story').classList.remove('open'); $('story-close').style.display = '';
+    player.busy = false; appendEvents(); renderPlayer(); colorsDirty = true; needsDraw = true;
+  };
+}
+function checkPlayerFallen() {
+  if (player.id < 0 || player.fallen) return;
+  const p = world.polities[player.id]; if (p.alive) return;
+  player.fallen = true; player.busy = true;
+  // the successor: whoever now holds most of our old capital region
+  const succ = p.capital >= 0 && world.owner[p.capital] >= 0 ? world.polities[world.owner[p.capital]] : null;
+  $('story-title').textContent = `${p.name} has fallen (${world.year})`;
+  $('story-body').innerHTML = `<p>Your state is gone. ${succ ? `<b>${succ.name}</b> now holds your old capital.` : ''}</p>
+    <div class="crow">${succ ? `<button class="primary" id="pf-succ">Rule ${succ.name}</button>` : ''}<button id="pf-pick">Pick another state on the map</button><button id="pf-watch">Just watch</button></div>`;
+  $('story').classList.add('open'); $('story-close').style.display = 'none';
+  const close = () => { $('story').classList.remove('open'); $('story-close').style.display = ''; player.busy = false; };
+  if (succ) $('pf-succ').onclick = () => { close(); setPlayer(succ.id); };
+  $('pf-pick').onclick = () => { close(); setPlayer(-1); $('inspector').innerHTML = '<div class="hint">Click a state, then press Play as this state.</div>'; };
+  $('pf-watch').onclick = () => { close(); setPlayer(-1); };
+}
+
 // ---------- main loop ----------
 let acc = 0, last = performance.now(), panelTimer = 0;
 function frame(now) {
@@ -486,14 +641,15 @@ function frame(now) {
   let stepped = 0;
   const t0 = performance.now();
   const councilDue = () => council.mode === 'llm' && world.year % council.every === 0 && council.held !== world.year;
-  if (council.busy) { /* waiting for the AI council */ }
+  const playerDue = () => player.id >= 0 && world.polities[player.id].alive && world.year % council.every === 0 && player.held !== world.year;
+  if (council.busy || player.busy) { /* waiting for a council */ }
   else if (jumpTarget !== null) {
-    while (world.year < jumpTarget && performance.now() - t0 < 40) { if (councilDue()) { holdLLMCouncil(); break; } world.step(); stepped++; }
+    while (world.year < jumpTarget && performance.now() - t0 < 40) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } world.step(); stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
     $('jumpinfo').textContent = world.year < jumpTarget ? `running to ${jumpTarget}…` : '';
     if (world.year >= jumpTarget) jumpTarget = null;
   } else if (playing) {
     acc += dt * speed;
-    while (acc >= 1 && performance.now() - t0 < 30) { if (councilDue()) { holdLLMCouncil(); break; } world.step(); acc -= 1; stepped++; }
+    while (acc >= 1 && performance.now() - t0 < 30) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } world.step(); acc -= 1; stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
     if (acc > 3) acc = 0;
   }
   if (stepped) { appendEvents(); panelTimer += stepped; needsDraw = true; colorsDirty = true; if (panelTimer >= 1) { updatePanels(); panelTimer = 0; if (MODES[mode].legendFn && world.year % 10 === 0) renderLegend(); } }
@@ -502,7 +658,7 @@ function frame(now) {
 }
 
 (async () => {
-  try { globe = await Globe.create($('globe'), canvas, idBin, elevBin, geo.cells.length); }
+  try { globe = await Globe.create($('globe'), canvas, idBin, shadeJpg, riversPng, geo.cells.length); }
   catch (err) { $('globe').parentElement.insertAdjacentHTML('beforeend', `<div class="fatal">Could not start the globe: ${err.message}</div>`); throw err; }
   resize();
   $('c-mode').value = council.mode; $('c-every').value = council.every; $('c-size').value = council.size; $('c-url').value = council.url; $('c-model').value = council.model;

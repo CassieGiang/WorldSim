@@ -127,10 +127,12 @@ export class World {
     this.siteAt = new Int32Array(N).fill(-1);
     CITY_SITES.forEach((st, k) => { const c = this._nearest(st[1], st[2]); if (c >= 0 && this._dist2(c, st[1], st[2]) < 1.6) this.siteAt[c] = k; });
     this.cities = []; this.cityAt = new Int32Array(N).fill(-1);
+    this.sched = opts.blind ? this._blindSchedule(seed) : { epidemics: EPIDEMICS, volcanoes: VOLCANOES, quakes: QUAKES, eras: CLIMATE_ERAS, prophets: null };
     this._setup();
     this._sysInit();
     this._polInit();
     this._famInit();
+    this._aggregate();
   }
 
   // ---------- setup ----------
@@ -158,6 +160,7 @@ export class World {
     for (const s of STATES) {
       const p = this._newPolity(s.name, s.culture, s.color, s.nomad);
       p.aggression = 0.6 + rng.next() * 0.8;
+      p.legitBase = 0.1;   // old, established states carry legitimacy
       this._grant(p.tech, PACKAGES[s.pkg]);
       for (let i = 0; i < N; i++) if (this.owner[i] < 0 && inPoly(this.lon[i], this.lat[i], s.poly)) this.owner[i] = p.id;
       p.capital = this._nearest(s.cap[0], s.cap[1], c => this.owner[c] === p.id);
@@ -402,9 +405,9 @@ export class World {
     const w = this.weather, rng = this.rng;
     for (let b = 0; b < w.length; b++) w[b] = 0.45 * w[b] + 0.075 * rng.normal();
     let volc = 0;
-    for (const v of VOLCANOES) if (v.hit && y >= v.year && y < v.year + v.years) volc += v.hit * (1 - (y - v.year) / v.years * 0.5);
+    for (const v of this.sched.volcanoes) if (v.hit && y >= v.year && y < v.year + v.years) volc += v.hit * (1 - (y - v.year) / v.years * 0.5);
     let era = 0;
-    for (const [a, b, an] of CLIMATE_ERAS) if (y >= a && y <= b) era += an;
+    for (const [a, b, an] of this.sched.eras) if (y >= a && y <= b) era += an;
     this.globalAnom = era - volc;
     for (let i = 0; i < this.N; i++) {
       const al = Math.abs(this.lat[i]);
@@ -415,7 +418,7 @@ export class World {
   }
 
   _scheduled(y) {
-    for (const v of [...VOLCANOES, ...QUAKES]) {
+    for (const v of [...this.sched.volcanoes, ...this.sched.quakes]) {
       if (v.year !== y) continue;
       if (v.at) {
         const c = this._nearest(v.at[0], v.at[1]);
@@ -423,7 +426,7 @@ export class World {
         this._log('disaster', `${v.name}: ${fmt(d)} dead in ${this._where(c)}.`, { cell: c, ry: v.ry, deaths: d });
       } else this._log('climate', `${v.name}. Harvests fail across the northern world.`, { ry: v.ry });
     }
-    for (const e of EPIDEMICS) if (e.year === y) this._startEpidemic(e.name, this._nearest(e.at[0], e.at[1]), e.mort, e.reach, e.ry);
+    for (const e of this.sched.epidemics) if (e.year === y) this._startEpidemic(e.name, e.at ? this._nearest(e.at[0], e.at[1]) : this._busyCity(), e.mort, e.reach, e.ry);
   }
   _where(c) { const o = this.owner[c]; return o >= 0 ? this.polities[o].name : `the lands of the ${this._tribeName(c)}`; }
   _tribeName(c) { const parts = NAME_PARTS[this.culture[c]] || NAME_PARTS.latin; const r = makeRng(c * 7919 + 13); const s = parts[0][r.int(parts[0].length)]; return s + (parts[2].length ? parts[2][r.int(parts[2].length)] : '') + ' peoples'; }
@@ -605,7 +608,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const famineShare = p.famineDeaths / Math.max(1, p.pop), plagueShare = p.plagueDeaths / Math.max(1, p.pop);
-      const target = 0.8 - Math.min(0.5, p.over / Math.max(1, p.cells) * 1.5) - 0.1 * Math.max(0, Math.log(p.cells / this.K / (30 + p.fx.stateCap * 0.8))) - Math.min(0.4, p.wars * 0.06) - (p.foreign / Math.max(1, p.pop)) * (p.tech[T.printing] ? 0.35 : 0.1) + (this._focus(p.id) === 'stability' ? 0.12 : 0) + this._govFx(p).stab + this._rulerFx(p).stab + (p.overlord != null ? -0.04 : 0) - (this.rel ? (1 - p.faithPop / Math.max(1, p.pop)) * 0.15 : 0);
+      const target = 0.8 - Math.min(0.5, p.over / Math.max(1, p.cells) * 1.5) - 0.1 * Math.max(0, Math.log(p.cells / this.K / (30 + p.fx.stateCap * 0.8))) - Math.min(0.4, p.wars * 0.06) - (p.foreign / Math.max(1, p.pop)) * (p.tech[T.printing] ? 0.35 : 0.1) + (this._focus(p.id) === 'stability' ? 0.12 : 0) + this._govFx(p).stab + this._rulerFx(p).stab + Math.min(0.1, (y - p.founded) / 1500) + (p.legitBase || 0) * Math.max(0, 1 - (y - 1) / 600) + (p.overlord != null ? -0.04 : 0) - (this.rel ? (1 - p.faithPop / Math.max(1, p.pop)) * 0.15 : 0);
       p.stability += 0.06 * (target - p.stability) - famineShare * 3 - plagueShare * 1.2 - p.warLoss;
       if (rng.next() < 0.02) p.stability -= 0.1 + rng.next() * 0.15; // succession trouble
       p.stability = Math.max(0, Math.min(1, p.stability));
@@ -854,7 +857,7 @@ export class World {
 
   // ---------- councils (rule-based or LLM) ----------
   _focus(pid) { if (pid < 0) return null; const p = this.polities[pid]; return p && p.policy ? p.policy.focus : null; }
-  councilMembers(n = 5) { return this.polities.filter(p => p.alive && p.cells >= 3 * this.K).sort((a, b) => b.pop - a.pop).slice(0, n); }
+  councilMembers(n = 5) { return this.polities.filter(p => p.alive && p.id !== this.playerId && p.cells >= 3 * this.K).sort((a, b) => b.pop - a.pop).slice(0, n); }
   brief(p) {
     const rank = this.polities.filter(q => q.alive && q.pop > p.pop).length + 1;
     let fed = 0, cells = 0, fam = 0;
@@ -934,7 +937,42 @@ export class World {
     this._log('council', `${p.name}'s council chooses ${label}${warText}.${d.statement ? ` "${d.statement}"` : ''}`, { pol: p.id, source, why: d.reasoning || '', big: !!warText || source === 'llm' });
     p.policy.reasoning = d.reasoning || '';
   }
+  // ---------- player actions (any time) ----------
+  playerDeclareWar(p, q) { if (!p.alive || !q.alive || this.atWarWith(p.id, q.id)) return false; const al = this.allianceOf(p.id); if (al && al.members.has(q.id)) { this._alDirty = true; al.members.delete(p.id); } this.truces.delete([p.id, q.id].sort((a, b) => a - b).join(':')); this._declare(p, q); return true; }
+  playerOfferPeace(p, q) {
+    const w = this.wars.find(w => !w.end && ((w.a === p.id && w.b === q.id) || (w.b === p.id && w.a === q.id))); if (!w) return 'no war';
+    const theirEx = w.a === q.id ? w.exA : w.exB, theirSide = w.a === q.id ? 1 : -1, winning = w.taken * theirSide > 1;
+    const ratio = q.army / Math.max(1, p.army);
+    const pAccept = Math.max(0.05, Math.min(0.95, 0.25 + theirEx * 0.5 - (winning ? 0.3 : 0) - (ratio > 1.5 ? 0.2 : 0)));
+    if (this.rng.next() < pAccept) { this._endWar(w, `${q.name} accepts ${p.name}'s offer of peace`); return 'accepted'; }
+    this._log('peace', `${q.name} rejects ${p.name}'s offer of peace.`, { pol: p.id }); return 'rejected';
+  }
+  playerProposeAlliance(p, q) {
+    if (this.atWarWith(p.id, q.id) || this.allied(p.id, q.id) || q.overlord != null) return 'impossible';
+    const pAccept = (q.rel === p.rel ? 0.55 : 0.3) + (q.gov === p.gov ? 0.1 : 0) + Math.min(0.25, p.army / Math.max(1, q.army) * 0.1);
+    if (this.rng.next() < pAccept) { const n = this.alliances.length; this._ally(p, q, null, ''); return this.allianceOf(p.id) && this.allianceOf(p.id).members.has(q.id) ? 'accepted' : 'impossible'; }
+    this._log('alliance', `${q.name} turns down ${p.name}'s offer of alliance.`, { pol: p.id }); return 'rejected';
+  }
+  playerLeaveAlliance(p) { const al = this.allianceOf(p.id); if (!al) return false; this._alDirty = true; al.members.delete(p.id); this._log('alliance', `${p.name} leaves the ${al.name}.`, { pol: p.id }); return true; }
+
   holdCouncilWithRules(n = 5) { for (const p of this.councilMembers(n)) this.applyDecision(p, this.ruleDecision(p), 'rules'); }
+
+  // ---------- blind mode: shocks at random dates and places instead of our timeline ----------
+  _blindSchedule(seed) {
+    const r = makeRng(seed * 7919 + 1013), out = { epidemics: [], volcanoes: [], quakes: [], eras: [], prophets: [] };
+    const poisson = (rate, from, to, fn) => { for (let y = from; y <= to; y++) if (r.next() < rate) fn(y); };
+    const pest = ['Great Pestilence', 'Red Fever', 'Sweating Sickness', 'Black Cough', 'Spotted Plague', 'Wasting Fever', 'Grey Death', 'River Fever'];
+    poisson(1 / 170, 60, 2026, y => out.epidemics.push({ year: y, name: `${r.pick(pest)} of ${y}`, mort: Math.min(0.42, 0.02 + Math.pow(r.next(), 2.2) * (y < 1850 ? 0.42 : 0.04)), reach: 0.4 + r.next() * 0.5 }));
+    poisson(1 / 280, 2, 2026, y => { const hit = 0.03 + Math.pow(r.next(), 1.8) * 0.14; out.volcanoes.push({ year: y, hit, years: 2 + (hit > 0.1 ? 1 : 0), name: `A great eruption darkens the sky (${y})` }); });
+    poisson(1 / 600, 2, 2026, y => out.quakes.push({ year: y, at: [-180 + r.next() * 360, -40 + r.next() * 100], local: 0.005 + r.next() * 0.06, name: 'A great earthquake' }));
+    for (let k = 0; k < 2; k++) { const a = 200 + r.int(1600), len = 150 + r.int(400); out.eras.push([a, a + len, (r.next() < 0.5 ? -1 : 1) * (0.02 + r.next() * 0.03)]); }
+    poisson(1 / 380, 5, 1900, y => out.prophets.push({ year: y, miss: 0.35 + r.next() * 0.8, conquest: r.next() < 0.3 ? 1 : 0, color: `hsl(${r.int(360)},55%,65%)` }));
+    return out;
+  }
+  _busyCity() {
+    const c = this.topCities(30); if (!c.length) return this.rng.int(this.N);
+    return this.rng.pick(c).cell;
+  }
 
   // ---------- cities ----------
   cityLabel(ct) { return ct.site >= 0 ? cityName(CITY_SITES[ct.site], this.year) : ct.name; }

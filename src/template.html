@@ -69,8 +69,11 @@
   .dim { color:var(--dim); }
   .fam { padding:4px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:12px; } .famact { display:flex; gap:4px; margin-top:3px; }
   #story { position:absolute; left:50%; top:40px; transform:translateX(-50%); width:min(620px, calc(100% - 80px)); max-height:calc(100% - 80px); overflow:auto; background:rgba(12,17,30,.97); border:1px solid var(--line); border-radius:10px; padding:14px 18px; display:none; z-index:6; line-height:1.6; }
+  #story input:not([type=checkbox]):not([type=radio]), #story select { background:#0b1120; color:inherit; border:1px solid var(--line); border-radius:4px; padding:3px 6px; margin-left:4px; }
   #story.open { display:block; } #story p { margin:0 0 10px; }
   .ev-family .et { color:#e9d6b8; }
+  pre.brief { white-space:pre-wrap; font-family:inherit; font-size:12px; line-height:1.5; background:#0b1120; border:1px solid var(--line); border-radius:6px; padding:8px; max-height:220px; overflow:auto; }
+  label.opt { display:block; font-size:13px; padding:2px 0; cursor:pointer; }
   .chead { display:flex; align-items:center; gap:6px; margin-bottom:6px; } .chead h3 { margin:0; } button.xs { font-size:10px; padding:3px 7px; }
   .ev-council .et { color:#bfe3b0; } .ev .why { font-style:italic; }
   aside { overflow:auto; }
@@ -88,6 +91,7 @@
     <div class="grp"><label>Run to</label><input id="jumpto" type="number" value="1500"><button id="jump">Go</button><span id="jumpinfo"></span></div>
     <div style="flex:1"></div>
     <button id="b-open">Many worlds</button>
+    <label class="grp" title="Plagues, eruptions and prophets at random dates and places instead of our timeline"><input type="checkbox" id="blind"> Blind</label>
     <div class="grp"><label>Seed</label><input id="seed" type="number" value="1"><button id="newworld">New world</button></div>
   </header>
   <main>
@@ -125,7 +129,8 @@
       <div class="crow llmonly"><input id="c-url" type="text" class="md" title="Ollama address" value="http://localhost:11434"><input id="c-model" type="text" class="md" title="Model name, e.g. qwen2.5:7b or qwen3:8b" value="qwen2.5:7b"><button id="c-test">Test</button></div>
       <div id="c-status" class="hint"></div>
     </div>
-    <div class="card"><h3>FAMILIES</h3><div id="families"></div></div>
+    <div class="card"><h3>YOU</h3><div id="playerbox"></div></div>
+    <div class="card"><h3>FAMILIES</h3><div id="families"></div><div class="crow" style="margin-top:6px"><button class="xs" id="fam-add">+ Add a family</button><span style="flex:1"></span><label class="dim"><input type="checkbox" id="fam-builtin"> built-in families</label></div><div id="fam-saved"></div></div>
     <div class="card"><h3>LARGEST STATES</h3><div id="states"></div></div>
     <div class="card" id="inspector"><div class="hint">Click land to inspect it.</div></div>
     <div id="logwrap">

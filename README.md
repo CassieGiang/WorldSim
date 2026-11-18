@@ -75,12 +75,18 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 1. **Replay mode** (`node force.mjs <seed>`): every tech appears at its real date. Food and demography were tuned until world population follows the real curve: the replay gives 8.3 billion in 2026 against 8.2 real.
 2. **Tech costs** (`node costs.mjs`): each cost is the research the leading state produced between the date the tech became possible and its real date.
 3. **Many worlds** (`node batch.mjs 50 1 2026`): free-running worlds then scatter around real history. An early lead feeds on itself, so the spread is wide.
+4. **Hold-out validation** (`node validate.mjs 12 1 1 2` normal, add `blind` for blind mode): wars, cities, urban share, life expectancy, faiths, number of states and democracies are never tuned. They are compared with history in `reports/`. Currently 13 of 27 pass in normal mode and 10 of 21 in blind mode. The failures are the to-do list in `ROADMAP.md`.
+
+Only the population curve and the median tech dates are calibrated. Everything else is emergent or a fixed input (map, year-1 states, and in normal mode the dates of plagues, eruptions and prophets).
 
 ## Using it
 - **Playing:** open `index.html`. Drag to rotate, scroll to zoom, click land to inspect it.
   - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, culture, government, resources, trade routes, wealth and fish.
 - **Chronicle:** filters, plus export to `.md` (readable) or `.json` (everything).
 - **Many worlds:** runs dozens of seeds in the background. Click a row to open that world.
+- **Play a state:** click a state, then *Play as this state*. Every council year (25 by default) the game pauses and you are the council: set the priority, declare war, make peace, join or leave alliances and write a proclamation. The YOU card also lets you act at any time. If your state falls you can take over its successor, pick another or just watch.
+- **Families:** *+ Add a family* in the Families card. Pick a province (or use the selected one), choose names, sex, work and traits (stubborn, restless, devout, scholarly, brave, frugal). Traits run in the family and change its fortunes. *Guide* pauses at famines, wars, new chances and each new head of the family so you choose. *Save* starts the family in every new world. The built-in families can be switched off.
+- **Blind mode:** tick *Blind* before a new world. Plagues, eruptions, climate eras and prophets are then random rather than historical, which shows how much of the result comes from the scripted inputs.
 - **AI councils:** install Ollama and pull a model (e.g. `ollama pull qwen2.5:7b`). On Windows, set the user environment variable `OLLAMA_ORIGINS=*` and restart Ollama, because the page is opened from a file. Then pick *AI councils* and press **Test**.
 
 ## Building
@@ -90,10 +96,12 @@ node build.mjs          # -> dist/index.html (one self-contained file)
 node run.mjs 1 2026     # headless run
 node batch.mjs 50 1 2026
 ```
-To regenerate the map data (`src/world2.json`, `src/idmap.bin`, `src/elev.bin`):
+To regenerate the map data (`src/world2.json`, `src/idmap4k.bin`, `src/shade.jpg`, `src/rivers.png`):
 1. Get `kg.tif` from the `koppengeiger` repo or pip package (`KG_simplified_uint8.tif`).
 2. Get `etopo1.jpg` from the `basemap-data` pip package.
-3. Run `python make_elev.py`, then `python prep2.py`.
+3. Run `python make_elev.py`, then `python prep2.py`, then `python prep_tex.py` (rivers come from Natural Earth).
+
+Tests: `node test/determinism.mjs`, and `node test/check-batch.mjs` after a batch. GitHub Actions runs both, plus validation, on every push.
 
 ## Files
 - `src/engine.js`: the core simulation (food, people, plagues, tech, states, war, cities, councils)

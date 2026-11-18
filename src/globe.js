@@ -1,11 +1,11 @@
 // GPU globe: a per-pixel orthographic projection in a fragment shader.
 // The map is a 2048x1024 "which province is this pixel" texture; each year only the province colours change.
-const TW = 2048, TH = 1024;
+const TW = 4096, TH = 2048;
 const VS = `#version 300 es
 in vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
 const FS = `#version 300 es
 precision highp float; precision highp usampler2D;
-uniform usampler2D uId; uniform usampler2D uOwn; uniform sampler2D uCol; uniform sampler2D uShade;
+uniform usampler2D uId; uniform usampler2D uOwn; uniform sampler2D uCol; uniform sampler2D uShade; uniform sampler2D uRiv; uniform float uRivers;
 uniform vec2 uCenter; uniform float uR; uniform vec3 uE, uN, uF; uniform uint uSel; uniform uint uSelOwn; uniform float uBorders;
 out vec4 o;
 const float PI = 3.14159265;
@@ -29,6 +29,8 @@ void main(){
     c = texelFetch(uCol, ivec2(int(id % 128u), int(id / 128u)), 0).rgb;
     float sh = texture(uShade, uv).r;
     c *= (0.70 + 0.55 * sh) * light;
+    float rv = texture(uRiv, uv).r;
+    c = mix(c, vec3(0.22, 0.47, 0.72) * light, clamp(rv * 1.3, 0.0, 1.0) * 0.8 * uRivers);
     vec2 d = vec2(1.0 / ${TW}.0, 1.0 / ${TH}.0);
     uint ow = ownOf(id);
     uint a = idAt(uv + vec2(d.x, 0.0)), b = idAt(uv - vec2(d.x, 0.0)), e = idAt(uv + vec2(0.0, d.y)), f = idAt(uv - vec2(0.0, d.y));
@@ -50,12 +52,19 @@ async function inflate(bytes) {
 }
 
 export class Globe {
-  static async create(glCanvas, overlay, idBin, elevBin, N) {
+  static async create(glCanvas, overlay, idBin, shadeJpg, riversPng, N) {
     const g = new Globe(glCanvas, overlay, N);
     const idBytes = await inflate(idBin);
     g.idmap = new Uint16Array(idBytes.buffer, idBytes.byteOffset, TW * TH);
-    const elev = await inflate(elevBin);
-    g._init(elev);
+    const gray = async (bytes, type) => {
+      const bmp = await createImageBitmap(new Blob([bytes], { type }));
+      const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
+      const cx = cv.getContext('2d', { willReadFrequently: true }); cx.drawImage(bmp, 0, 0);
+      const d = cx.getImageData(0, 0, bmp.width, bmp.height).data, out = new Uint8Array(bmp.width * bmp.height);
+      for (let i = 0; i < out.length; i++) out[i] = d[i * 4];
+      return { w: bmp.width, h: bmp.height, data: out };
+    };
+    g._init(await gray(shadeJpg, 'image/jpeg'), await gray(riversPng, 'image/png'));
     return g;
   }
   constructor(glCanvas, overlay, N) {
@@ -67,8 +76,7 @@ export class Globe {
     this.sel = 65535; this.selOwn = 0; this.borders = 1;
     this.rows = Math.ceil(N / 128);
   }
-  _init(elev0) {
-    let elev = elev0;
+  _init(shade, rivers) {
     const gl = this.gl;
     const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
@@ -88,33 +96,13 @@ export class Globe {
     this.tCol = tex(2, 'uCol'); nearest();
     this.colData = new Uint8Array(128 * this.rows * 4);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 128, this.rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.colData);
-    // hill shading from the elevation grid (1800 x 900, 20 m steps)
-    const EW = 1800, EH = 900, shade = new Uint8Array(EW * EH);
-    // smooth the relief (the source image carries jpeg and hill-shade texture)
-    let src = Float32Array.from(elev), tmp = new Float32Array(EW * EH);
-    for (let pass = 0; pass < 3; pass++) {
-      for (let y = 0; y < EH; y++) for (let x = 0; x < EW; x++) {
-        let s = 0, n = 0;
-        for (let dy = -1; dy <= 1; dy++) { const yy = y + dy; if (yy < 0 || yy >= EH) continue; for (let dx = -1; dx <= 1; dx++) { const v = src[yy * EW + (x + dx + EW) % EW]; if (v) { s += v; n++; } } }
-        tmp[y * EW + x] = elev[y * EW + x] ? s / n : 0;
-      }
-      [src, tmp] = [tmp, src];
-    }
-    elev = src;
-    for (let y = 0; y < EH; y++) for (let x = 0; x < EW; x++) {
-      const i = y * EW + x, e = elev[i];
-      if (!e) { shade[i] = 128; continue; }
-      const ex = elev[y * EW + ((x + 1) % EW)] - elev[y * EW + ((x - 1 + EW) % EW)];
-      const ey = elev[Math.min(EH - 1, y + 1) * EW + x] - elev[Math.max(0, y - 1) * EW + x];
-      const coslat = Math.max(0.2, Math.cos(((y + 0.5) / EH * 180 - 90) * Math.PI / 180));
-      const v = 0.5 - (ex / coslat * 0.7 - ey * 0.7) * 0.05 * Math.min(1, Math.max(0.15, (e - 15) / 45));           // light from the north-west
-      shade[i] = Math.max(0, Math.min(255, v * 255 + e * 0.1));
-    }
-    this.tShade = tex(3, 'uShade');
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, EW, EH, 0, gl.RED, gl.UNSIGNED_BYTE, shade);
-    this.u = {}; for (const n of ['uCenter', 'uR', 'uE', 'uN', 'uF', 'uSel', 'uSelOwn', 'uBorders']) this.u[n] = gl.getUniformLocation(pr, n);
+    const linear = () => { gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); };
+    this.tShade = tex(3, 'uShade'); linear();
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, shade.w, shade.h, 0, gl.RED, gl.UNSIGNED_BYTE, shade.data);
+    this.tRiv = tex(4, 'uRiv'); linear();
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, rivers.w, rivers.h, 0, gl.RED, gl.UNSIGNED_BYTE, rivers.data);
+    this.rivers = 1;
+    this.u = {}; for (const n of ['uCenter', 'uR', 'uE', 'uN', 'uF', 'uSel', 'uSelOwn', 'uBorders', 'uRivers']) this.u[n] = gl.getUniformLocation(pr, n);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
   setData(colors, owners) {
@@ -147,7 +135,7 @@ export class Globe {
     gl.uniform2f(this.u.uCenter, this.c.width / 2, this.c.height / 2);
     gl.uniform1f(this.u.uR, this.radius() * dpr);
     gl.uniform3fv(this.u.uE, E); gl.uniform3fv(this.u.uN, N); gl.uniform3fv(this.u.uF, F);
-    gl.uniform1ui(this.u.uSel, this.sel); gl.uniform1ui(this.u.uSelOwn, this.selOwn); gl.uniform1f(this.u.uBorders, this.borders);
+    gl.uniform1ui(this.u.uSel, this.sel); gl.uniform1ui(this.u.uSelOwn, this.selOwn); gl.uniform1f(this.u.uBorders, this.borders); gl.uniform1f(this.u.uRivers, this.rivers);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
   // lon/lat -> css pixel, or null if on the far side

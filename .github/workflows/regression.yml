@@ -1,0 +1,30 @@
+name: Regression checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Build
+        run: node build.mjs
+      - name: Determinism (same seed, same history)
+        run: node test/determinism.mjs
+      - name: Batch of 8 worlds (median history check)
+        run: node batch.mjs 8 1 2026 2 | tee batch.txt && node test/check-batch.mjs
+      - name: Hold-out validation (report only)
+        run: node validate.mjs 8 1 0 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            batch.txt
+            batches/
+            reports/
