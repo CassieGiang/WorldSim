@@ -18,6 +18,8 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 
 **Economy and society**
 - 19 crops and animals (wheat, rice, millet, maize, potatoes, cassava, sugar, cotton, tea, coffee, cacao, tobacco, cattle, sheep, horses, camels, llamas…), each growing where the climate suits it. They spread from province to province on their own; across the ocean only after first contact, carried by empires and trade routes. This replaces the old single "New World crops" invention: the Columbian exchange now happens crop by crop.
+- 14 goods (grain, livestock, fish, cloth, metal, timber, wine, silk, spices, porcelain, plantation goods, coal, oil, manufactures) with supply, demand and a price in every state. Trade routes earn by the price gaps they close, so silk and spice routes emerge from prices; the trade map names the busiest routes by what they carry.
+- Taxes rise when a state is in debt; debt carries interest (cheaper with banking and property rights); too much debt ends in default.
 - Bread prices answer to hunger, and silver from new mines in the Americas drives prices up everywhere (a price revolution).
 - Social classes in every state (nobles, clergy, merchants, artisans, free peasants, serfs, slaves; later workers, middle class, professionals) and an inequality index.
 - Institutions appear and are abolished: serfdom, slavery (including plantation slavery after contact), guilds, property rights, votes for all, trade unions, the welfare state.

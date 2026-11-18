@@ -95,6 +95,8 @@ export function installEconomy(World) {
     if (y % 5 === 0) { for (const p of this.polities) if (p.alive) { this._institutions(p, y); this._classes(p); } }
     for (const p of this.polities) if (p.alive && p.classes) this._unrest(p, y);
     this._works(y);
+    if (this._finance) this._finance(y);
+    if (y % 5 === 0 && this._markets) this._markets(y);
   };
 
   // ---- crops and animals spread to neighbours where they grow; across the ocean only after contact ----
@@ -297,5 +299,114 @@ export function installEconomy(World) {
     else if (w.kind === 'dam') fx.food *= 1.06;
     else fx.stab = Math.min(0.08, fx.stab + 0.025);
     if (p.pop > 3e6) this._log('city', `${p.name} completes ${w.name}${w.kind === 'pyramid' || w.kind === 'temple' || w.kind === 'palace' ? ', the pride of its people' : ''}.`, { pol: p.id, cell: w.cell, big: p.pop > 30e6 && ['wall', 'canal', 'pyramid'].includes(w.kind) });
+  };
+}
+
+// ---------------- markets: goods, prices, trade by value, taxes and debt ----------------
+export const GOODS = ['grain', 'livestock', 'fish', 'cloth', 'metal', 'timber', 'wine', 'silk', 'spices', 'porcelain', 'plantation goods', 'coal', 'oil', 'manufactures'];
+const G = Object.fromEntries(GOODS.map((g, k) => [g, k]));
+const LUX = new Set([G.wine, G.silk, G.spices, G.porcelain, G['plantation goods']]);
+export function installMarkets(World) {
+  const P = World.prototype;
+  P._markets = function (y) {
+    const N = this.N, NG = GOODS.length, np = this.polities.length;
+    const S = new Float64Array(np * NG), D = new Float64Array(np * NG);
+    const cs = this.geo.cells, bit = id => 1 << CROPS.findIndex(c => c.id === id);
+    const cotton = bit('cotton'), sheep = bit('sheep'), sugar = bit('sugar') | bit('coffee') | bit('tea') | bit('tobacco') | bit('cacao');
+    for (let i = 0; i < N; i++) {
+      const o = this.owner[i]; if (o < 0) continue;
+      const pop = this.pop[i]; if (pop < 100) continue;
+      const p = this.polities[o], b = o * NG, u = this.urban[i], f = cs[i].f, cul = this.culture[i], t = this.cellTech[i], res = this.res ? this.res[i] : 0, crops = this.crops[i];
+      const town = pop * u, rich = 1 + (p.fx && p.fx.industry ? 2 : 0);
+      // supply
+      S[b + G.grain] += this.prod[i] * 0.8;
+      S[b + G.livestock] += this.pastureA[i] * this.pastureY[i] * this.pastF[i] * 0.2;
+      S[b + G.fish] += this.fish[i] * 0.04;
+      S[b + G.cloth] += town * 0.25 * (crops & (cotton | sheep) ? 1 : 0.3);
+      S[b + G.metal] += (res & 1 || res & 2 ? Math.sqrt(pop) * 30 : 0);
+      S[b + G.timber] += this.area[i] * (f[3] + f[4] + f[1] * 0.5) * 20;
+      if (Math.abs(cs[i].lat) > 28 && Math.abs(cs[i].lat) < 47 && f[3] > 0.3 && (cul === 'latin' || cul === 'greek' || cul === 'persian' || cul === 'celtic' || cul === 'germanic')) S[b + G.wine] += pop * 0.02;
+      if (cul === 'sinitic' || cul === 'korean' || cul === 'japanese') S[b + G.silk] += pop * 0.012;
+      if (f[1] > 0.4 && this.coastal[i] && cs[i].lon > 70 && cs[i].lon < 135 && cs[i].lat < 22) S[b + G.spices] += pop * 0.02;
+      if (cul === 'sinitic' && t[T.paper]) S[b + G.porcelain] += town * 0.05;
+      if (crops & sugar) S[b + G['plantation goods']] += pop * 0.01 * (p.inst && p.inst.slavery ? 3 : 1);
+      if (res & 16 && t[T.steam_engine]) S[b + G.coal] += Math.sqrt(pop) * 60;
+      if (res & 32 && t[T.combustion]) S[b + G.oil] += Math.sqrt(pop) * 60;
+      if (t[T.industry]) S[b + G.manufactures] += town * 0.4;
+      // demand
+      D[b + G.grain] += pop * 0.8; D[b + G.livestock] += pop * 0.1; D[b + G.fish] += pop * 0.03;
+      D[b + G.cloth] += pop * 0.08; D[b + G.metal] += pop * 0.01 * rich; D[b + G.timber] += pop * 0.05;
+      for (const g of LUX) D[b + g] += town * 0.012 * rich;
+      if (t[T.steam_engine]) D[b + G.coal] += town * 0.3;
+      if (t[T.combustion]) D[b + G.oil] += pop * 0.05;
+      D[b + G.manufactures] += t[T.industry] || this.contactYear ? town * 0.2 : 0;
+    }
+    // supplies are scaled once, when a good first appears, so that the world starts near balance (later goods start scarce)
+    this.goodScale = this.goodScale || new Array(NG).fill(0);
+    for (let k = 0; k < NG; k++) {
+      let s = 0, d = 0; for (let o = 0; o < np; o++) { s += S[o * NG + k]; d += D[o * NG + k]; }
+      if (!this.goodScale[k] && s > 0 && d > 0) this.goodScale[k] = Math.max(1e-4, Math.min(1e4, d / s * (y < 50 ? 1 : 0.4)));
+      const sc = this.goodScale[k] || 1; for (let o = 0; o < np; o++) S[o * NG + k] *= sc;
+    }
+    // world prices, then each state's own price
+    this.goodPrice = GOODS.map((g, k) => { let s = 0, d = 0; for (let o = 0; o < np; o++) { s += S[o * NG + k]; d += D[o * NG + k]; } return s > 0 ? Math.max(0.2, Math.min(8, Math.pow(d / s, 0.5))) : 8; });
+    for (const p of this.polities) {
+      if (!p.alive) continue;
+      const b = p.id * NG;
+      p.prices = GOODS.map((g, k) => this.goodPrice[k] * Math.max(0.2, Math.min(5, Math.pow((D[b + k] + 1) / (S[b + k] + 1), 0.5))));
+      const bal = GOODS.map((g, k) => [g, (S[b + k] - D[b + k]) / (D[b + k] + S[b + k] + 1)]);
+      p.exports = bal.filter(x => x[1] > 0.1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(x => x[0]);
+      p.imports = bal.filter(x => x[1] < -0.1).sort((a, b) => a[1] - b[1]).slice(0, 3).map(x => x[0]);
+    }
+    // trade routes earn by the price gaps they close, so the routes that pay are the ones that carry what one end lacks
+    if (!this.routes || !this.routes.length) return;
+    const val = r => {
+      const A = this.polities[r.pa], B = this.polities[r.pb]; if (!A.prices || !B.prices || r.pa === r.pb) return [1, null];
+      let best = 0, bg = null, tot = 0;
+      for (let k = 0; k < NG; k++) {
+        const gap = Math.abs(A.prices[k] - B.prices[k]) / this.goodPrice[k];
+        const vol = Math.sqrt((S[r.pa * NG + k] + 1) * (D[r.pb * NG + k] + 1)) + Math.sqrt((S[r.pb * NG + k] + 1) * (D[r.pa * NG + k] + 1));
+        const v = gap * vol * (LUX.has(k) ? 3 : 1); tot += v; if (v > best) { best = v; bg = GOODS[k]; }
+      }
+      return [tot, bg];
+    };
+    const vals = this.routes.map(val), mean = vals.reduce((a, v) => a + v[0], 0) / vals.length || 1;
+    this.routes.forEach((r, k) => { r.v *= 0.5 + Math.min(3, vals[k][0] / mean); r.good = vals[k][1]; });
+    const maxV = this.routes.reduce((m, r) => Math.max(m, r.v), 1e-9);
+    for (const r of this.routes) r.w = Math.sqrt(r.v / maxV);
+    for (const p of this.polities) p.tradeValue = 0;
+    for (const r of this.routes) { this.polities[r.pa].tradeValue += r.v; this.polities[r.pb].tradeValue += r.v; }
+    // the first long luxury routes are worth a line
+    this.routeFirst = this.routeFirst || {};
+    for (const r of this.routes) {
+      if (!r.good || !LUX.has(G[r.good]) || this.routeFirst[r.good] || this.distDeg(r.a, r.b) < 15) continue;
+      this.routeFirst[r.good] = y;
+      const ca = this.cities[this.cityAt[r.a]], cb = this.cities[this.cityAt[r.b]];
+      this._log('contact', `Merchants open a ${r.good} route between ${ca ? this.cityLabel(ca) : this._where(r.a)} and ${cb ? this.cityLabel(cb) : this._where(r.b)}.`, { cell: r.a, big: r.good === 'silk' || r.good === 'spices' });
+    }
+  };
+
+  // taxes rise with debt; debt carries interest; too much debt ends in default
+  P._finance = function (y) {
+    for (const p of this.polities) {
+      if (!p.alive) continue;
+      p.taxRate = p.taxRate || 1; p.debt = p.debt || 0;
+      const inc = Math.max(0.01, p.income || 0), t = p.tech;
+      if (p.treasury < 0) { p.debt += -p.treasury; p.treasury = 0; }
+      const rate = Math.max(0.02, 0.05 + 0.03 * (p.defaults || 0) - (t[T.banking] ? 0.02 : 0) - (p.inst && p.inst.property ? 0.01 : 0));
+      p.interest = rate;
+      const due = p.debt * rate;
+      if (p.treasury >= due) p.treasury -= due; else { p.debt += due - p.treasury; p.treasury = 0; }
+      if (p.treasury > inc * 3 && p.debt > 0) { const pay = Math.min(p.debt, p.treasury * 0.3); p.debt -= pay; p.treasury -= pay; }
+      if (y % 5 === 0) {
+        if (p.debt > inc * 6 && p.taxRate < 1.6) p.taxRate = +(p.taxRate + 0.1).toFixed(2);
+        else if (p.debt < inc && p.treasury > inc * 15 && p.taxRate > 0.9) p.taxRate = +(p.taxRate - 0.05).toFixed(2);
+      }
+      if (p.taxRate > 1.2) { p.stability -= (p.taxRate - 1.2) * 0.01; p.unrest = (p.unrest || 0) + (p.taxRate - 1.2) * 0.01; }
+      if (p.debt > inc * (t[T.banking] ? 40 : 15) && inc > 0.05) {
+        p.defaults = (p.defaults || 0) + 1; p.debt *= 0.2; p.stability = Math.max(0, p.stability - 0.15);
+        if (p.pop > 3e6) this._log('famine', `${p.name} cannot pay its debts and defaults${p.defaults > 1 ? ` for the ${['', 'second', 'third', 'fourth'][Math.min(3, p.defaults - 1)] || p.defaults + 'th'} time` : ''}; lenders take heavy losses.`, { pol: p.id, big: p.pop > 40e6 });
+      }
+    }
   };
 }

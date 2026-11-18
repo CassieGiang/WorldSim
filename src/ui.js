@@ -185,7 +185,7 @@ function drawWorks(ctx) {
   if (!world.works || (mode !== 'political' && mode !== 'trade')) return;
   ctx.font = '13px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const w of world.works) {
-    if (!(w.done && !w.abandoned) && !(!w.done && !w.abandoned)) continue;
+    if (w.abandoned || (globe.view.scale < 1.8 && !(w.done && (w.kind === 'wall' || w.kind === 'canal' || w.kind === 'pyramid') && world.polities[w.pol].pop > 5e6))) continue;
     const pt = globe.project(world.lon[w.cell] + 0.6, world.lat[w.cell] - 0.6); if (!pt || pt[2] < 0.3) continue;
     ctx.globalAlpha = w.done ? 0.95 : 0.5; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,10,18,.8)'; ctx.strokeText(WORK_ICONS[w.kind] || '•', pt[0], pt[1]); ctx.fillStyle = '#ffd98a'; ctx.fillText(WORK_ICONS[w.kind] || '•', pt[0], pt[1]);
   }
@@ -193,6 +193,7 @@ function drawWorks(ctx) {
 }
 function drawRoutes(ctx, alpha) {
   if (!world.routes) return;
+  const lab = [];
   for (const r of world.routes) {
     const a = [world.lon[r.a], world.lat[r.a]], b = [world.lon[r.b], world.lat[r.b]];
     // great-circle arc in a few segments
@@ -207,6 +208,17 @@ function drawRoutes(ctx, alpha) {
     for (const p of pts) { if (!p) { on = false; continue; } if (!on) { ctx.moveTo(p[0], p[1]); on = true; } else ctx.lineTo(p[0], p[1]); }
     ctx.strokeStyle = r.sea ? `rgba(120,200,255,${(0.4 + 0.55 * r.w) * alpha})` : `rgba(255,200,90,${(0.4 + 0.55 * r.w) * alpha})`;
     ctx.lineWidth = 0.6 + 2.6 * r.w; ctx.stroke();
+    if (alpha >= 1 && r.good && r.pa !== r.pb && r.w > 0.45 && pts[6]) lab.push([r.w, r.good, pts[6]]);
+  }
+  // in the trade map, name the busiest routes by what they carry
+  if (alpha >= 1) {
+    ctx.font = '600 11px Inter, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const done = [];
+    for (const [, g, pt] of lab.sort((a, b) => b[0] - a[0]).slice(0, 14)) {
+      if (done.some(q => Math.hypot(q[0] - pt[0], q[1] - pt[1]) < 60)) continue; done.push(pt);
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,10,18,.8)'; ctx.strokeText(g, pt[0], pt[1] - 8); ctx.fillStyle = '#ffe2a8'; ctx.fillText(g, pt[0], pt[1] - 8);
+    }
+    ctx.textAlign = 'left';
   }
 }
 function drawLabels(ctx) {
@@ -317,7 +329,7 @@ function showCell(i) {
   if (c.resources.length) html += row('Resources', c.resources.join(', '));
   if (p) {
     const wars = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a].name);
-    html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + row('Research / yr', (p.rpRate || 0).toFixed(0)) + (p.grainPrice ? row('Bread price', `${(p.grainPrice / world.priceLevel).toFixed(1)}× usual`) : '') + (p.classes ? row('Society', Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')) + row('Inequality', (p.gini || 0).toFixed(2)) + row('Unrest', Math.round(Math.min(1, p.unrest || 0) * 100) + '%') : '') + (p.inst && Object.keys(p.inst).length ? row('Institutions', Object.keys(p.inst).map(k => INST_LABEL[k]).join(', ')) : '');
+    html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + row('Research / yr', (p.rpRate || 0).toFixed(0)) + (p.grainPrice ? row('Bread price', `${(p.grainPrice / world.priceLevel).toFixed(1)}× usual`) : '') + (p.classes ? row('Society', Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')) + row('Inequality', (p.gini || 0).toFixed(2)) + row('Unrest', Math.round(Math.min(1, p.unrest || 0) * 100) + '%') : '') + (p.exports ? row('Exports', p.exports.join(', ') || '–') + row('Imports', p.imports.join(', ') || '–') : '') + (p.taxRate ? row('Taxes', `${Math.round(p.taxRate * 100)}% of usual`) + row('Debt', p.debt > 0.01 ? `${(p.debt / Math.max(0.01, p.income)).toFixed(1)} years of income, at ${Math.round((p.interest || 0) * 100)}%${p.defaults ? `, ${p.defaults} default${p.defaults > 1 ? 's' : ''}` : ''}` : 'none') : '') + (p.inst && Object.keys(p.inst).length ? row('Institutions', Object.keys(p.inst).map(k => INST_LABEL[k]).join(', ')) : '');
     if (wars.length) html += row('At war with', wars.join(', '));
     if (p.ruler) html += row('Ruler', `${world._rulerTitle(p)}, ${p.ruler.age}`) + row('Traits', p.ruler.traits.join(', ')) + row('House', `${p.ruler.dynasty}${p.ruler.elected ? '' : ' (since ' + p.ruler.since + ')'}`);
     const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);

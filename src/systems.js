@@ -185,7 +185,7 @@ export function installSystems(World) {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const g = GOVS[p.gov] || GOVS.kingdom;
-      const tax = ((p.urban * 1.0 + (p.pop - p.urban) * 0.15) / 1e6) * p.fx.tax * g.tax * (0.4 + p.stability) * (p.fx.industry ? 3 : 1);
+      const tax = (p.taxRate || 1) * ((p.urban * 1.0 + (p.pop - p.urban) * 0.15) / 1e6) * p.fx.tax * g.tax * (0.4 + p.stability) * (p.fx.industry ? 3 : 1);
       const trade = (p.worksFx ? p.worksFx.trade : 1) * (p.tradeValue || 0) / maxTrade * 0.15 * Math.max(1, p.pop / 1e6) ** 0.5 * (p.fx.industry ? 4 : 1) + (p.tradeValue || 0) * 0;
       const gold = (goldCells.get(p.id) || 0) * 0.4 / this.K;
       const army = (p.soldiers || 0) / 1e6 * 13 * (p.fx.industry ? 2 : 1) * (p.policy && p.policy.focus === 'army' ? 1.3 : 1);

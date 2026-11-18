@@ -9,7 +9,7 @@ import { installPolitics, TRAITS } from './politics.js';
 import { installFamilies } from './families.js';
 import { installPeoples } from './peoples.js';
 import { installWhatIf } from './whatif.js';
-import { installEconomy } from './economy.js';
+import { installEconomy, installMarkets } from './economy.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -1089,4 +1089,5 @@ installFamilies(World);
 installPeoples(World);
 installWhatIf(World);
 installEconomy(World);
+installMarkets(World);
 World.prototype._rngFactory = makeRng;
