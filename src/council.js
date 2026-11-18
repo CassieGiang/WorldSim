@@ -89,3 +89,19 @@ export async function writeFamilyStory({ url, model, surname, record, signal }) 
   const j = await r.json();
   return ((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
+
+// one chapter of the history book: a century written from the chronicle
+export async function writeChapter({ url, model, title, record, before, signal }) {
+  const body = {
+    model, stream: false, options: { temperature: 0.7 },
+    messages: [
+      { role: 'system', content: 'You are a historian writing a readable history book about an alternate world. Write one chapter from the chronicle you are given: 3 to 4 paragraphs, about 300 words, past tense, plain English. Keep every name, year and number exactly as given and invent no events; you may explain causes and links between events that the record shows. Do not mention our real world unless the record does. No headings, no lists.' },
+      { role: 'user', content: `${before ? `Where the previous chapter ended: ${before}\n\n` : ''}Chapter: ${title}\nChronicle:\n${record}` },
+    ],
+  };
+  if (/qwen3/i.test(model)) body.think = false;
+  const r = await fetch(url.replace(/\/$/, '') + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+  if (!r.ok) throw new Error(`Ollama answered ${r.status}`);
+  const j = await r.json();
+  return ((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}

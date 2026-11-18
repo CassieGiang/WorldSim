@@ -8,6 +8,7 @@ import { installSystems, GOVS, RES, RB } from './systems.js';
 import { installPolitics, TRAITS } from './politics.js';
 import { installFamilies } from './families.js';
 import { installPeoples } from './peoples.js';
+import { installWhatIf } from './whatif.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -19,6 +20,7 @@ export function makeRng(seed) {
   };
   for (let i = 0; i < 20; i++) next();
   const r = { next, int: n => Math.floor(next() * n), pick: arr => arr[Math.floor(next() * arr.length)],
+    getState: () => [a, b, c, d], setState: st => { [a, b, c, d] = st; },
     normal: () => { let u = 0, v = 0; while (u === 0) u = next(); v = next(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); } };
   return r;
 }
@@ -150,7 +152,7 @@ export class World {
     }
     this._aggregate();
     this._cities(true);
-    this.history.pop(); this._record(0, 0, 0);
+    this.history.pop(); this.shareHist = []; for (const p of this.polities) p.hist = []; this._record(0, 0, 0);
   }
 
   // ---------- setup ----------
@@ -1045,6 +1047,15 @@ export class World {
     this.history.push({ y: this.year, pop, urban: urb / Math.max(1, pop), states: alive.length,
       wars: this.wars.filter(w => !w.end).length, famine: famineD, war: warD, plague: plagueD,
       techLead: lead ? lead.fx.known : 0, techLeader: lead ? lead.name : '' });
+    // every 5 years: a line per state, and the world's faiths and language families
+    if (this.year % 5 === 0 || this.year <= 1) {
+      for (const p of alive) (p.hist || (p.hist = [])).push([this.year, Math.round(p.pop), p.cells, Math.round(p.army || 0), p.fx ? p.fx.known : 0, Math.round(p.treasury || 0), +(p.urban / Math.max(1, p.pop)).toFixed(3), +p.stability.toFixed(2)]);
+      if (this.year % 10 === 0 || this.year <= 1) {
+        const f = {}; if (this.rel) for (let i = 0; i < this.N; i++) { const r = this.rel[i]; if (r >= 0) f[r] = (f[r] || 0) + this.pop[i]; }
+        const fam = {}; if (this.ppl) for (let i = 0; i < this.N; i++) { const q = this.peoples[this.ppl[i]].family; fam[q] = (fam[q] || 0) + this.pop[i]; }
+        (this.shareHist || (this.shareHist = [])).push({ y: this.year, faith: f, fam });
+      }
+    }
   }
   run(toYear, cb) { while (this.year < toYear) { this.step(); cb && cb(this); } }
   summary() {
@@ -1073,3 +1084,5 @@ installSystems(World);
 installPolitics(World);
 installFamilies(World);
 installPeoples(World);
+installWhatIf(World);
+World.prototype._rngFactory = makeRng;

@@ -70,6 +70,8 @@
   .fam { padding:4px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:12px; } .famact { display:flex; gap:4px; margin-top:3px; }
   #story { position:absolute; left:50%; top:40px; transform:translateX(-50%); width:min(620px, calc(100% - 80px)); max-height:calc(100% - 80px); overflow:auto; background:rgba(12,17,30,.97); border:1px solid var(--line); border-radius:10px; padding:14px 18px; display:none; z-index:6; line-height:1.6; }
   #story input:not([type=checkbox]):not([type=radio]), #story select { background:#0b1120; color:inherit; border:1px solid var(--line); border-radius:4px; padding:3px 6px; margin-left:4px; }
+  .bgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; } .bcol { border:1px solid var(--line); border-radius:6px; padding:6px; font-size:12px; } .bcol.on { border-color:var(--gold); }
+  .ctab { width:100%; font-size:12px; border-collapse:collapse; margin-top:8px; } .ctab td, .ctab th { padding:2px 6px; border-bottom:1px solid var(--line); text-align:left; }
   #story.open { display:block; } #story p { margin:0 0 10px; }
   .ev-family .et { color:#e9d6b8; }
   pre.brief { white-space:pre-wrap; font-family:inherit; font-size:12px; line-height:1.5; background:#0b1120; border:1px solid var(--line); border-radius:6px; padding:8px; max-height:220px; overflow:auto; }
@@ -93,6 +95,7 @@
     <button id="b-open">Many worlds</button>
     <label class="grp" title="Plagues, eruptions and prophets at random dates and places instead of our timeline"><input type="checkbox" id="blind"> Blind</label>
     <div class="grp"><label>Seed</label><input id="seed" type="number" value="1"><button id="newworld">New world</button></div>
+    <div class="grp"><button id="branch" title="Copy the world, change one thing, and run both side by side">What if…</button></div>
   </header>
   <main>
     <div id="story"><div class="bhead"><b id="story-title"></b><span style="flex:1"></span><button id="story-close">✕</button></div><div id="story-body"></div></div>
@@ -130,12 +133,13 @@
       <div id="c-status" class="hint"></div>
     </div>
     <div class="card"><h3>YOU</h3><div id="playerbox"></div></div>
+    <div class="card" id="branchcard" style="display:none"><h3>WHAT IF</h3><div id="branchbody"></div></div>
     <div class="card"><h3>FAMILIES</h3><div id="families"></div><div class="crow" style="margin-top:6px"><button class="xs" id="fam-add">+ Add a family</button><span style="flex:1"></span><label class="dim"><input type="checkbox" id="fam-builtin"> built-in families</label></div><div id="fam-saved"></div></div>
     <div class="card"><h3>LARGEST STATES</h3><div id="states"></div></div>
     <div class="card" id="inspector"><div class="hint">Click land to inspect it.</div></div>
     <div id="logwrap">
       <div class="card" style="border-bottom:none;padding-bottom:4px">
-        <div class="chead"><h3>CHRONICLE</h3><span style="flex:1"></span><button id="x-md" class="xs" title="Save what the chronicle shows now, as readable text">Export .md</button><button id="x-json" class="xs" title="Save the whole run: every event, council reasoning, yearly world stats">Export .json</button></div>
+        <div class="chead"><h3>CHRONICLE</h3><span style="flex:1"></span><button class="xs" id="x-charts">Charts</button><button class="xs" id="x-book" title="A history of this world, a chapter per century, written by your local AI">Book</button><button id="x-md" class="xs" title="Save what the chronicle shows now, as readable text">Export .md</button><button id="x-json" class="xs" title="Save the whole run: every event, council reasoning, yearly world stats">Export .json</button></div>
         <div class="filters">
           <label><input type="checkbox" id="f-big" checked> Major only</label>
           <label><input type="checkbox" id="f-war" checked> Wars</label>

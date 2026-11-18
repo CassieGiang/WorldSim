@@ -6,8 +6,10 @@ import { Globe } from './globe.js';
 import { World, fmt } from './engine.js';
 import { GOVS, RES } from './systems.js';
 import { TECHS, REAL_POP } from './scenario.js';
-import { askCouncil, listModels, writeFamilyStory } from './council.js';
+import { askCouncil, listModels, writeFamilyStory, writeChapter } from './council.js';
 import { FAMILY_TRAITS } from './families.js';
+import { WHATIFS } from './whatif.js';
+import { flagSVG } from './flags.js';
 
 // ---------- state ----------
 const $ = id => document.getElementById(id);
@@ -19,10 +21,12 @@ function worldOpts() { return { blind: $('blind') && $('blind').checked, council
 const canvas = $('overlay');
 let globe = null, colorsDirty = true;
 const player = { id: -1, held: -1, busy: false, fallen: false };
+let branch = null;   // what-if: { A, B, active: 'A' | 'B' }
 const famUI = { picking: false, saved: (() => { try { return JSON.parse(store.get('families', '[]')); } catch { return []; } })(), builtin: store.get('builtinFam', '1') === '1' };
 const saveFamStore = () => store.set('families', JSON.stringify(famUI.saved));
 
 function newWorld(seed) {
+  branch = null; renderBranch();
   pplCache.clear(); langCache.clear();
   world = new World(geo, seed, worldOpts());
   council.held = -1; player.id = -1; player.held = -1; player.busy = false; world.playerId = -1; renderPlayer();
@@ -202,6 +206,7 @@ function drawLabels(ctx) {
 // ---------- panels ----------
 const realPop = y => { let a = REAL_POP[0]; for (const b of REAL_POP) { if (b[0] >= y) { const t = (y - a[0]) / Math.max(1, b[0] - a[0]); return (a[1] + (b[1] - a[1]) * t) * 1e6; } a = b; } return a[1] * 1e6; };
 function updatePanels() {
+  if (branch) renderBranch();
   const h = world.history.at(-1);
   $('year').textContent = world.year < 1 ? `${1 - world.year} BC` : `${world.year}`;
   $('s-pop').textContent = fmt(h.pop);
@@ -216,7 +221,7 @@ function updatePanels() {
   drawChart();
   // top states
   const top = world.polities.filter(p => p.alive).sort((a, b) => b.pop - a.pop).slice(0, 8);
-  $('states').innerHTML = top.map(p => `<div class="st" data-pol="${p.id}"><span class="sw" style="background:${p.color}"></span><span class="nm">${p.name}</span><span class="v">${fmt(p.pop)}</span></div>`).join('');
+  $('states').innerHTML = top.map(p => `<div class="st" data-pol="${p.id}"><span class="sw" style="background:${p.color}"></span>${flagSVG(world, p, 18, 12)}&nbsp;<span class="nm">${p.name}</span><span class="v">${fmt(p.pop)}</span></div>`).join('');
   renderFamilies();
   if (player.id >= 0 && !player.busy && !$('playerbox').contains(document.activeElement)) renderPlayer();
   if (selected >= 0) showCell(selected);
@@ -275,7 +280,7 @@ function rebuildLog() { $('log').innerHTML = ''; lastEventCount = 0; appendEvent
 function showCell(i) {
   const c = world.cellInfo(i), p = c.owner;
   const row = (k, v) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`;
-  let html = `<div class="ihead">${p ? `<span class="sw" style="background:${p.color}"></span>${p.name}` : c.tribe}</div>`;
+  let html = `<div class="ihead">${p ? `${flagSVG(world, p, 27, 18)} <span class="sw" style="background:${p.color}"></span>${p.name}` : c.tribe}</div>`;
   html += `<div class="isub">${Math.abs(c.lat).toFixed(0)}°${c.lat >= 0 ? 'N' : 'S'} ${Math.abs(c.lon).toFixed(0)}°${c.lon >= 0 ? 'E' : 'W'} · ${world.peopleOf(i).name}${c.river ? ' · ' + c.river + ' river' : ''}</div>`;
   html += row('People', fmt(c.pop)) + row('Per km²', c.density.toFixed(1)) + row('Fed', Math.round(c.nour * 100) + '%');
   html += row('Harvest weather', (c.climate >= 1 ? '+' : '') + Math.round((c.climate - 1) * 100) + '%');
@@ -294,7 +299,7 @@ function showCell(i) {
     const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);
     if (p.overlord != null) html += row('Vassal of', world.polities[p.overlord].name);
     const vs = world.polities.filter(q => q.alive && q.overlord === p.id); if (vs.length) html += row('Vassals', vs.map(q => q.name).join(', '));
-    html += `<div style="margin:6px 0"><button class="xs" data-play="${p.id}">${player.id === p.id ? 'You rule this state' : '▶ Play as this state'}</button></div>`;
+    html += `<div style="margin:6px 0"><button class="xs" data-play="${p.id}">${player.id === p.id ? 'You rule this state' : '▶ Play as this state'}</button> <button class="xs" data-page="${p.id}">State page</button></div>`;
     if (p.policy) html += row('Council priority', p.policy.focus + (p.policy.source === 'llm' ? ' (AI)' : ''));
   }
   html += `<div class="isec">Knows (${c.known})</div><div class="techs">${c.techs.join(' · ')}</div>`;
@@ -334,7 +339,7 @@ canvas.addEventListener('wheel', e => { e.preventDefault(); globe.view.scale = M
 window.addEventListener('resize', resize);
 
 $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '❚❚ Pause' : '▶ Play'; };
-$('step').onclick = () => { world.step(); afterSteps(); };
+$('step').onclick = () => { stepAll(); afterSteps(); };
 $('speed').oninput = e => { speed = [1, 2, 5, 10, 20, 50, 100][+e.target.value]; $('speedv').textContent = speed + ' yr/s'; };
 $('newworld').onclick = () => newWorld(Math.floor(Math.random() * 1e6));
 $('seed').onchange = e => newWorld(+e.target.value || 1);
@@ -583,7 +588,7 @@ function renderPlayer() {
   const allyC = [...near].map(q => world.polities[q]).filter(q => q.alive && q.id !== p.id && !world.allied(p.id, q.id) && !world.atWarWith(p.id, q.id) && q.overlord == null).sort((a, b) => b.pop - a.pop).slice(0, 15);
   const al = world.allianceOf(p.id);
   const next = Math.ceil((world.year + 1) / council.every) * council.every;
-  box.innerHTML = `<div><span class="sw" style="background:${p.color}"></span><b>${p.name}</b></div>
+  box.innerHTML = `<div>${flagSVG(world, p, 27, 18)} <span class="sw" style="background:${p.color}"></span><b>${p.name}</b></div>
     <div class="dim">${world._rulerTitle(p)} · ${fmt(p.pop)} · stability ${Math.round(p.stability * 100)}% · priority: ${p.policy ? p.policy.focus : '–'} · next council ${next}</div>
     <div class="crow" style="margin-top:6px"><select id="pa-war">${pOpts(nb.filter(q => !world.atWarWith(p.id, q.id)), 'no neighbours')}</select><button class="xs" id="pa-war-go">Declare war</button></div>
     <div class="crow"><select id="pa-peace">${pOpts(enemies, 'at peace')}</select><button class="xs" id="pa-peace-go">Offer peace</button></div>
@@ -655,12 +660,12 @@ function frame(now) {
   const playerDue = () => player.id >= 0 && world.polities[player.id].alive && world.year % council.every === 0 && player.held !== world.year;
   if (council.busy || player.busy) { /* waiting for a council */ }
   else if (jumpTarget !== null) {
-    while (world.year < jumpTarget && performance.now() - t0 < 40) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } world.step(); stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
+    while (world.year < jumpTarget && performance.now() - t0 < 40) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
     $('jumpinfo').textContent = world.year < jumpTarget ? `running to ${jumpTarget}…` : '';
     if (world.year >= jumpTarget) jumpTarget = null;
   } else if (playing) {
     acc += dt * speed;
-    while (acc >= 1 && performance.now() - t0 < 30) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } world.step(); acc -= 1; stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
+    while (acc >= 1 && performance.now() - t0 < 30) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); acc -= 1; stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
     if (acc > 3) acc = 0;
   }
   if (stepped) { appendEvents(); panelTimer += stepped; needsDraw = true; colorsDirty = true; if (panelTimer >= 1) { updatePanels(); panelTimer = 0; if (MODES[mode].legendFn && world.year % 10 === 0) renderLegend(); } }
@@ -680,3 +685,166 @@ function frame(now) {
 })();
 window.__world = () => world;
 window.__drawTime = () => { const t = performance.now(); for (let k = 0; k < 10; k++) { colorsDirty = true; draw(); } return (performance.now() - t) / 10; };
+
+
+// ---------- what-if branches ----------
+function stepAll() { if (branch) { branch.A.step(); branch.B.step(); } else world.step(); }
+function viewBranch(k) {
+  if (!branch || branch.active === k) return;
+  branch.active = k; world = branch[k];
+  pplCache.clear(); langCache.clear(); rebuildLog(); colorsDirty = true; needsDraw = true; updatePanels(); renderPlayer();
+  if (selected >= 0) showCell(selected);
+}
+function branchStats(w) {
+  const s = w.history.at(-1), b0 = w.history.find(h => h.y >= (w.branchYear || 0)) || w.history[0];
+  const top = w._largest().slice(0, 4).map(p => `<span class="sw" style="background:${p.color}"></span>${p.name} <span class="dim">${fmt(p.pop)}</span>`).join('<br>');
+  const lead = w.polities.filter(p => p.alive).reduce((a, p) => (!a || p.fx.known > a.fx.known ? p : a), null);
+  return { pop: fmt(s.pop), states: s.states, wars: s.wars, tech: `${s.techLead}/${TECHS.length}${lead ? ' · ' + lead.name : ''}`, top };
+}
+function renderBranch() {
+  const box = $('branchcard'); if (!box) return;
+  if (!branch) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  const a = branchStats(branch.A), b = branchStats(branch.B), same = branch.A.compareWith(branch.B).sameMap;
+  const col = (k, st, w) => `<div class="bcol ${branch.active === k ? 'on' : ''}"><div class="crow"><b>${k === 'A' ? 'A · as it was' : 'B · what if'}</b><span style="flex:1"></span><button class="xs" data-bv="${k}">${branch.active === k ? 'viewing' : 'View'}</button></div>
+    ${k === 'B' ? `<div class="dim" style="margin-bottom:4px">${branch.B.branchNote || ''}</div>` : '<div class="dim" style="margin-bottom:4px">unchanged</div>'}
+    <div class="kv"><span>People</span><b>${st.pop}</b></div><div class="kv"><span>States</span><b>${st.states}</b></div><div class="kv"><span>Wars now</span><b>${st.wars}</b></div><div class="kv"><span>Top tech</span><b>${st.tech}</b></div>
+    <div style="margin-top:4px;line-height:1.5">${st.top}</div></div>`;
+  $('branchbody').innerHTML = `<div class="dim">Split in ${branch.B.branchYear}. ${Math.round(same * 100)}% of the map still has the same rulers.</div><div class="bgrid">${col('A', a)}${col('B', b)}</div>
+    <div class="crow" style="margin-top:6px"><button class="xs" data-bk="A">Keep only A</button><button class="xs" data-bk="B">Keep only B</button></div>`;
+}
+document.addEventListener('click', e => {
+  const v = e.target.closest('[data-bv]'); if (v) { viewBranch(v.dataset.bv); renderBranch(); return; }
+  const k = e.target.closest('[data-bk]'); if (k && branch) { const keep = branch[k.dataset.bk]; branch.active = k.dataset.bk; world = keep; branch = null; pplCache.clear(); langCache.clear(); rebuildLog(); renderBranch(); colorsDirty = true; needsDraw = true; updatePanels(); }
+});
+$('branch').onclick = () => {
+  playing = false; $('play').textContent = '▶ Play';
+  const base = branch ? branch.A : world;
+  const pol = selected >= 0 && base.owner[selected] >= 0 ? base.polities[base.owner[selected]] : null;
+  const plagues = base.upcomingPlagues();
+  $('story-title').textContent = `What if… (year ${base.year})`;
+  $('story-body').innerHTML = `<p class="dim">The world is copied. Branch A runs on unchanged; branch B gets one change. Both run side by side${branch ? ' (this replaces the current branch B)' : ''}.</p>` +
+    WHATIFS.map(w => {
+      const off = (w.needs === 'state' && !pol) || (w.needs === 'cell' && selected < 0) || (w.needs === 'plague' && !plagues.length);
+      const extra = w.needs === 'state' ? (pol ? ` <span class="dim">(${pol.name})</span>` : ' <span class="dim">(select a state on the map first)</span>') : w.needs === 'cell' ? (selected >= 0 ? ` <span class="dim">(${base._where(selected)})</span>` : ' <span class="dim">(select a province first)</span>') : w.needs === 'plague' ? ` <select id="wi-plague">${plagues.map(e => `<option>${e.name}</option>`).join('')}</select>` : '';
+      return `<div class="crow" style="margin:4px 0"><button class="xs" data-wi="${w.id}" ${off ? 'disabled' : ''}>Branch</button><span>${w.label}${extra}</span></div>`;
+    }).join('');
+  $('story').classList.add('open');
+  $('story-body').querySelectorAll('[data-wi]').forEach(b => b.onclick = () => {
+    const id = b.dataset.wi, B = base.fork();
+    const arg = id === 'luck' ? 1 + Math.floor(Math.random() * 1e6) : (id === 'ruler_lives' || id === 'ruler_dies' || id === 'civil_war' || id === 'peace' || id === 'tech') ? pol.id : id === 'plague' ? selected : id === 'no_plague' ? $('wi-plague').value : null;
+    B.whatIf(id, arg);
+    branch = { A: base, B, active: 'A' };
+    world = base; viewBranch('B');
+    $('story').classList.remove('open'); renderBranch();
+  });
+};
+
+
+// ---------- charts ----------
+const CH_METRICS = [['pop', 'People', 1], ['cells', 'Provinces', 2], ['army', 'Army', 3], ['known', 'Technologies known', 4], ['treasury', 'Treasury', 5], ['urban', 'Share in towns', 6], ['stab', 'Stability', 7]];
+const PAL = ['#f2b544', '#e06666', '#6fa8dc', '#93c47d', '#c27ba0', '#76a5af', '#e69138', '#b4a7d6'];
+function drawLines(cv, series, { y0 = 1, y1 = world.year, pct = false, log = false } = {}) {
+  const x = cv.getContext('2d'), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+  let max = 0, min = Infinity; for (const s of series) for (const [, v] of s.pts) { if (v > max) max = v; if (v > 0 && v < min) min = v; }
+  if (!isFinite(min)) min = 1; if (max <= 0) max = 1;
+  const L = 46, B = 18, X = y => L + (y - y0) / Math.max(1, y1 - y0) * (W - L - 8);
+  const Y = log ? v => H - B - (Math.log10(Math.max(v, min)) - Math.log10(min)) / Math.max(1e-9, Math.log10(max) - Math.log10(min)) * (H - B - 8) : v => H - B - v / max * (H - B - 8);
+  x.font = '10px system-ui'; x.fillStyle = 'rgba(255,255,255,.45)'; x.strokeStyle = 'rgba(255,255,255,.08)';
+  for (let k = 0; k <= 4; k++) { const v = log ? Math.pow(10, Math.log10(min) + (Math.log10(max) - Math.log10(min)) * k / 4) : max * k / 4, yy = Y(v); x.beginPath(); x.moveTo(L, yy); x.lineTo(W - 8, yy); x.stroke(); x.fillText(pct ? Math.round(v * 100) + '%' : fmt(v).replace(' million', 'M').replace(' billion', 'B'), 2, yy + 3); }
+  for (let k = 0; k <= 5; k++) { const yr = Math.round(y0 + (y1 - y0) * k / 5); x.fillText(String(yr), X(yr) - 10, H - 4); }
+  for (const s of series) { x.beginPath(); s.pts.forEach(([yy, v], k) => { const px = X(yy), py = Y(v); k ? x.lineTo(px, py) : x.moveTo(px, py); }); x.strokeStyle = s.color; x.lineWidth = s.dash ? 1.2 : 1.8; x.setLineDash(s.dash ? [4, 3] : []); x.stroke(); x.setLineDash([]); }
+}
+function openCharts() {
+  $('story-title').textContent = `Charts, year ${world.year}`;
+  const top = world._largest().slice(0, 6);
+  const sel = selected >= 0 && world.owner[selected] >= 0 ? world.polities[world.owner[selected]] : null;
+  $('story-body').innerHTML = `<div class="crow" style="flex-wrap:wrap;gap:6px">
+      <select id="ch-what"><option value="states">Largest states now${sel ? ' + ' + sel.name : ''}</option><option value="faith">World faiths (share of people)</option><option value="fam">Language families (share of people)</option><option value="world">This world vs our world</option></select>
+      <select id="ch-metric">${CH_METRICS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+      <label class="dim"><input type="checkbox" id="ch-log"> log scale</label></div>
+    <canvas id="ch-cv" style="width:100%;height:300px;margin-top:8px"></canvas><div id="ch-leg" class="dim" style="line-height:1.7"></div><div id="ch-extra"></div>`;
+  $('story').classList.add('open');
+  const draw = () => {
+    const what = $('ch-what').value, met = CH_METRICS.find(m => m[0] === $('ch-metric').value), log = $('ch-log').checked;
+    $('ch-metric').style.display = what === 'states' ? '' : 'none';
+    let series = [], pct = false; $('ch-extra').innerHTML = '';
+    if (what === 'states') {
+      const list = [...top]; if (sel && !list.includes(sel)) list.push(sel);
+      series = list.map((p, k) => ({ name: p.name, color: PAL[k % PAL.length], pts: (p.hist || []).map(h => [h[0], h[met[2]]]) }));
+      pct = met[0] === 'urban' || met[0] === 'stab';
+    } else if (what === 'faith' || what === 'fam') {
+      const sh = world.shareHist || [], totals = {};
+      for (const h of sh) { const t = Object.values(h[what]).reduce((a, b) => a + b, 0) || 1; for (const [k, v] of Object.entries(h[what])) totals[k] = Math.max(totals[k] || 0, v / t); }
+      const keys = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k]) => k);
+      series = keys.map((k, n) => ({ name: what === 'faith' ? world.faiths[k].name : k, color: what === 'faith' ? world.faiths[k].color : world.FAMILY_COLORS[k] || PAL[n], pts: sh.map(h => { const t = Object.values(h[what]).reduce((a, b) => a + b, 0) || 1; return [h.y, (h[what][k] || 0) / t]; }) }));
+      pct = true;
+    } else {
+      series = [{ name: 'This world: people', color: '#f2b544', pts: world.history.filter((h, k) => k % 5 === 0).map(h => [h.y, h.pop]) }, { name: 'Our world', color: 'rgba(255,255,255,.6)', dash: true, pts: REAL_POP.filter(r => r[0] <= world.year).map(r => [r[0], r[1] * 1e6]) }];
+      const rows = TECHS.filter(t => t.ry > 0 && world.firstTech[t.id]).map(t => { const f = world.firstTech[t.id], d = f.year - t.ry; return `<tr><td>${t.name}</td><td>${t.ry}</td><td>${f.year}</td><td style="color:${d > 0 ? '#e06666' : '#93c47d'}">${d > 0 ? '+' : ''}${d}</td><td class="dim">${f.by}</td></tr>`; }).join('');
+      $('ch-extra').innerHTML = `<table class="ctab"><tr><th>Invention</th><th>Our world</th><th>This world</th><th>Diff</th><th>First</th></tr>${rows}</table>`;
+    }
+    drawLines($('ch-cv'), series, { pct, log: log && !pct });
+    $('ch-leg').innerHTML = series.map(s => `<span style="white-space:nowrap;margin-right:10px"><i style="display:inline-block;width:10px;height:3px;background:${s.color};vertical-align:middle;margin-right:4px"></i>${s.name}</span>`).join('');
+  };
+  for (const id of ['ch-what', 'ch-metric', 'ch-log']) $(id).onchange = draw;
+  draw();
+}
+$('x-charts').onclick = openCharts;
+
+
+// ---------- encyclopedia: a page per state ----------
+function statePage(p) {
+  const evs = world.events.filter(e => e.pol === p.id || (e.text && e.text.includes(p.name)));
+  const wars = world.wars.filter(w => w.a === p.id || w.b === p.id).sort((a, b) => b.deaths - a.deaths).slice(0, 12);
+  const peak = (p.hist || []).reduce((a, h) => (h[1] > a[1] ? h : a), [0, 0]);
+  const t = new Map(); for (let i = 0; i < world.N; i++) if (world.owner[i] === p.id) t.set(world.ppl[i], (t.get(world.ppl[i]) || 0) + world.pop[i]);
+  const peoples = [...t].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([q, n]) => `${world.peoples[q].name} ${Math.round(n / Math.max(1, p.pop) * 100)}%`).join(', ');
+  const reigns = (p.reigns || []).slice(-25).map(r => `<tr><td>${r.from}–${r.to ?? ''}</td><td>${r.title}</td><td class="dim">House of ${r.dynasty}</td></tr>`).join('');
+  $('story-title').innerHTML = `${flagSVG(world, p, 36, 24)} ${p.name}`;
+  $('story-body').innerHTML = `
+    <div class="kv"><span>Founded</span><b>${p.founded}${p.ended ? ` · ended ${p.ended}` : ''}</b></div>
+    <div class="kv"><span>Government</span><b>${(GOVS[p.gov] || GOVS.kingdom).label}</b></div>
+    <div class="kv"><span>Faith</span><b>${p.rel >= 0 ? world.faiths[p.rel].name : '–'}</b></div>
+    ${p.alive ? `<div class="kv"><span>People now</span><b>${fmt(p.pop)} in ${p.cells} provinces</b></div><div class="kv"><span>Peoples</span><b>${peoples}</b></div>` : ''}
+    <div class="kv"><span>Peak</span><b>${fmt(peak[1])} (${peak[0]})</b></div>
+    <canvas id="sp-cv" style="width:100%;height:150px;margin-top:6px"></canvas>
+    ${wars.length ? `<div class="isec">Wars</div><table class="ctab">${wars.map(w => `<tr><td>${w.start}–${w.end ?? ''}</td><td>${w.name}</td><td>${fmt(w.deaths)} dead</td></tr>`).join('')}</table>` : ''}
+    ${reigns ? `<div class="isec">Rulers (latest ${Math.min(25, p.reigns.length)})</div><table class="ctab">${reigns}</table>` : ''}
+    <div class="isec">In the chronicle</div>${evs.slice(-40).map(e => `<p><b>${e.y}</b> ${e.text}</p>`).join('')}`;
+  $('story').classList.add('open');
+  drawLines($('sp-cv'), [{ name: 'people', color: '#f2b544', pts: (p.hist || []).map(h => [h[0], h[1]]) }], { y0: p.founded, y1: p.ended || world.year });
+}
+$('inspector').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (b) statePage(world.polities[+b.dataset.page]); });
+$('states').addEventListener('dblclick', e => { const el = e.target.closest('.st'); if (el) statePage(world.polities[+el.dataset.pol]); });
+
+// ---------- the history book ----------
+function centuryRecord(c) {
+  const a = c * 100 + 1, b = a + 99;
+  const evs = world.events.filter(e => e.y >= a && e.y <= b && e.type !== 'family' && (e.big || ['war', 'peace', 'split', 'fall', 'rise', 'dynasty', 'tech', 'faith', 'people', 'plague', 'famine', 'contact', 'gov', 'council'].includes(e.type)));
+  evs.sort((x, y) => (y.big ? 1 : 0) - (x.big ? 1 : 0) || (y.deaths || 0) - (x.deaths || 0));
+  const pick = evs.slice(0, 60).sort((x, y) => x.y - y.y);
+  const h0 = world.history.find(h => h.y >= a), h1 = [...world.history].reverse().find(h => h.y <= b);
+  const top = h1 ? `World population ${fmt(h0 ? h0.pop : 0)} in ${a}, ${fmt(h1.pop)} in ${h1.y}.` : '';
+  return top + '\n' + pick.map(e => `${e.y}: ${e.text}`).join('\n');
+}
+const ord = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+function openBook() {
+  world.book = world.book || {};
+  const last = Math.floor((world.year - 1) / 100);
+  $('story-title').textContent = `A history of this world, 1–${world.year}`;
+  const body = () => [...Array(last + 1).keys()].map(c => `<div class="chap"><div class="crow"><b>The ${ord(c + 1)} century (${c * 100 + 1}–${Math.min(world.year, c * 100 + 100)})</b><span style="flex:1"></span><button class="xs" data-ch="${c}">${world.book[c] ? 'Rewrite' : 'Write'}</button></div>${world.book[c] ? world.book[c].split(/\n+/).map(t => `<p>${t}</p>`).join('') : '<p class="dim">Not written yet.</p>'}</div>`).join('');
+  $('story-body').innerHTML = `<div class="crow"><button id="bk-all" class="primary">Write the missing chapters (AI)</button><button id="bk-md">Export .md</button><span id="bk-st" class="dim"></span></div><div id="bk-body">${body()}</div>`;
+  $('story').classList.add('open');
+  const write = async c => {
+    $('bk-st').textContent = `Writing the ${ord(c + 1)} century with ${council.model}…`;
+    const prev = world.book[c - 1] ? world.book[c - 1].split(/\n+/).pop().slice(-300) : '';
+    world.book[c] = await writeChapter({ url: council.url, model: council.model, title: `The ${ord(c + 1)} century`, record: centuryRecord(c), before: prev });
+    $('bk-body').innerHTML = body(); $('bk-st').textContent = '';
+  };
+  $('bk-body').onclick = async e => { const b = e.target.closest('[data-ch]'); if (!b) return; try { await write(+b.dataset.ch); } catch (err) { $('bk-st').textContent = `Could not reach Ollama (${err.message}). Check the Council settings.`; } };
+  $('bk-all').onclick = async () => { try { for (let c = 0; c <= last; c++) if (!world.book[c]) await write(c); $('bk-st').textContent = 'Done.'; } catch (err) { $('bk-st').textContent = `Could not reach Ollama (${err.message}). Check the Council settings.`; } };
+  $('bk-md').onclick = () => download(`worldsim_history_seed${world.seed}_${world.year}.md`, `# A history of this world (seed ${world.seed}), 1–${world.year}\n\n` + [...Array(last + 1).keys()].map(c => `## The ${ord(c + 1)} century\n\n${world.book[c] || '_(not written)_'}\n`).join('\n'), 'text/markdown');
+}
+$('x-book').onclick = openBook;

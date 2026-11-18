@@ -1,6 +1,6 @@
 # WorldSim roadmap: "much deeper simulation of nearly everything"
 
-Status: **approved** (18 Nov 2026). Stage 0 done (player mode, custom families, rivers, crisper map, blind mode, validation, regression tests). Stage A first drop done (18 Nov): year-1 peoples from GREG plus a correction layer, assimilation, migration carrying peoples, ethnogenesis, identity revolts and nationalism, people-named states, city renaming. Still to do in A: diasporas and the language-family tree view. Next: stage F.
+Status: **approved** (18 Nov 2026). Stage 0 done (player mode, custom families, rivers, crisper map, blind mode, validation, regression tests). Stage A first drop done (18 Nov): year-1 peoples from GREG plus a correction layer, assimilation, migration carrying peoples, ethnogenesis, identity revolts and nationalism, people-named states, city renaming. Still to do in A: diasporas and the language-family tree view. Stage F first drop done (18 Nov): what-if branching (fork any year, one change, A and B run side by side with a comparison card), charts (states over time, faiths, language families, this world vs ours with invention dates), generated flags that change with revolutions and dynasties, state pages, and a history book written by the local AI a century at a time. Still to do in F: split-screen globes and the video pipeline.
 
 ## Ground rules (apply to every stage)
 

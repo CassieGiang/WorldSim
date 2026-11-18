@@ -51,7 +51,10 @@ export function installPolitics(World) {
     const age = elected ? 40 + r.int(25) : initial ? 18 + r.int(40) : r.next() < 0.18 ? r.int(15) : 16 + r.int(30);
     let name = this._personName(cul);
     if (prev && !elected && !newDynasty && prev.name.split(' ')[0] === name.split(' ')[0]) name = name + ' II';
+    if (prev) { const last = (p.reigns || (p.reigns = [])).at(-1); if (last && last.to == null) last.to = this.year; }
     p.ruler = { name, age, traits, since: this.year, dynasty, elected, term: elected ? 4 + r.int(6) : 0 };
+    (p.reigns || (p.reigns = [])).push({ title: this._rulerTitle(p), from: this.year, to: null, dynasty, traits: traits.slice() });
+    if (p.reigns.length > 400) p.reigns.splice(0, p.reigns.length - 400);
     return p.ruler;
   };
 
@@ -82,6 +85,7 @@ export function installPolitics(World) {
         if (y - R.since >= R.term) { const old = R.name; this._newRuler(p); if (p.pop > 50e6 && r.next() < 0.1) this._log('ruler', `${p.name} elects a new leader: ${p.ruler.name} succeeds ${old}.`, { pol: p.id }); }
         continue;
       }
+      if (R.spared > y) continue;   // what-if: this ruler lives on
       const dieP = 0.006 + 0.0009 * Math.exp((R.age - 20) / 13) * (p.fx.death > 0.01 ? 0.5 : 1);
       const deposed = p.stability < 0.25 && r.next() < 0.04;
       if (r.next() >= dieP && !deposed) continue;
