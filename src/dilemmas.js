@@ -74,9 +74,9 @@ export const DILEMMAS = {
     },
     text: (w, p, c) => { const Q = w.polities[c.q]; return c.strong ? `An envoy from ${Q.name}, whose army is far larger than ours, demands yearly tribute "as a sign of friendship".` : `An envoy from ${Q.name} offers a marriage between our houses and a lasting friendship.`; },
     options: [
-      { key: 'yes', label: 'Accept', hint: 'tribute: pay 2 years of income, peace for 25 years / marriage: peace and an alliance', apply: (w, p, c) => { const Q = w.polities[c.q]; w.truces.set(pairKey(p.id, Q.id), w.year + 25); if (c.strong) { w._pay(p, 2); Q.treasury += (p.income || 0) * 2; w._stab(p, -0.03); return `Wagons of silver go to ${Q.name}. The border is quiet.`; } w._ally(p, Q, null, ' after a royal marriage'); w._stab(p, 0.02); return `The wedding is celebrated in both capitals. ${Q.name} is now our friend.`; } },
-      { key: 'no', label: 'Refuse', hint: 'tribute: they may attack / marriage: nothing changes', apply: (w, p, c) => { const Q = w.polities[c.q]; if (c.strong) { w._stab(p, 0.02); if (w.rng.next() < 0.6) { w.truces.delete(pairKey(p.id, Q.id)); w._declare(Q, p, 'after we refused tribute'); return `The envoy leaves in anger. Within weeks the army of ${Q.name} crosses the border.`; } return `The envoy leaves in anger, but ${Q.name} does not march. Yet.`; } return 'The envoy is thanked and sent home.'; } },
-      { key: 'insult', label: 'Insult the envoy', hint: 'pride at home; war is likely', apply: (w, p, c) => { const Q = w.polities[c.q]; w._stab(p, 0.04); w.truces.delete(pairKey(p.id, Q.id)); if (w.rng.next() < 0.75) { w._declare(Q, p, 'after its envoy was insulted'); return `The envoy is sent home with a shaved beard. ${Q.name} declares war.`; } return `The envoy is sent home with a shaved beard. ${Q.name} swallows the insult, for now.`; } },
+      { key: 'yes', label: 'Accept', hint: 'tribute: pay 2 years of income, peace for 25 years / marriage: peace and an alliance', apply: (w, p, c) => { const Q = w.polities[c.q]; w.truces.set(pairKey(p.id, Q.id), w.year + 25); if (c.strong) { w._pay(p, 2); Q.treasury += (p.income || 0) * 2; w._stab(p, -0.03); w.remember(Q.id, p.id, 15, 'paid us tribute'); return `Wagons of silver go to ${Q.name}. The border is quiet.`; } w._ally(p, Q, null, ' after a royal marriage'); w._stab(p, 0.02); w.remember(Q.id, p.id, 30, 'married into our house'); return `The wedding is celebrated in both capitals. ${Q.name} is now our friend.`; } },
+      { key: 'no', label: 'Refuse', hint: 'tribute: they may attack / marriage: nothing changes', apply: (w, p, c) => { const Q = w.polities[c.q]; if (c.strong) { w._stab(p, 0.02); w.remember(Q.id, p.id, -15, 'refused us tribute'); if (w.rng.next() < 0.6) { w.truces.delete(pairKey(p.id, Q.id)); w._declare(Q, p, 'after we refused tribute'); return `The envoy leaves in anger. Within weeks the army of ${Q.name} crosses the border.`; } return `The envoy leaves in anger, but ${Q.name} does not march. Yet.`; } w.remember(Q.id, p.id, -5, 'turned down our marriage offer'); return 'The envoy is thanked and sent home.'; } },
+      { key: 'insult', label: 'Insult the envoy', hint: 'pride at home; war is likely', apply: (w, p, c) => { const Q = w.polities[c.q]; w._stab(p, 0.04); w.rememberWithAllies(Q.id, p.id, -50, 'insulted our envoy', 'insulted our ally'); w.truces.delete(pairKey(p.id, Q.id)); if (w.rng.next() < 0.75) { w._declare(Q, p, 'after its envoy was insulted'); return `The envoy is sent home with a shaved beard. ${Q.name} declares war.`; } return `The envoy is sent home with a shaved beard. ${Q.name} swallows the insult, for now.`; } },
     ],
   },
   governor: {
@@ -110,16 +110,16 @@ export const DILEMMAS = {
     ],
   },
 };
-const URGENT = new Set(['famine', 'plague']);
-const ORDER = ['famine', 'plague', 'regency', 'money', 'envoy', 'heresy', 'governor', 'inventor', 'surplus'];
+const URGENT = new Set(['famine', 'plague', 'usurped']);
+const ORDER = ['usurped', 'restoration', 'famine', 'plague', 'regency', 'education', 'money', 'ultimatum', 'envoy', 'match', 'pact', 'heresy', 'governor', 'inventor', 'surplus'];
 
 export function installDilemmas(World) {
   const P = World.prototype;
   // a far province breaks away under its governor
-  P._secedeAt = function (p, c) {
+  P._secedeAt = function (p, c, name = null) {
     const cells = this.brushCells(c, 2).filter(i => this.owner[i] === p.id && i !== p.capital);
     if (!cells.length) return null;
-    const n = this.newStateAt(cells[0], null, 'kingdom');
+    const n = this.newStateAt(cells[0], name, 'kingdom');
     for (const i of cells) this.owner[i] = n.id;
     this._declare(p, n, 'to bring the rebels back', true);
     this._afterEdit();
@@ -159,7 +159,8 @@ export function installDilemmas(World) {
       for (const key of ORDER) {
         if (urgentOnly && !URGENT.has(key)) continue;
         if ((seen[key] || -99) > this.year - 12) continue;   // the same kind of choice at most every 12 years
-        const D = DILEMMAS[key], ctx = D.when(this, p);
+        const D = DILEMMAS[key]; if (!D) continue;
+        const ctx = D.when(this, p);
         if (!ctx) continue;
         seen[key] = this.year;
         this.dilemmaQ.push({ pol: id, key, ctx, year: this.year, title: D.title, text: D.text(this, p, ctx), options: D.options.map(o => ({ key: o.key, label: o.label, hint: o.hint })) });
@@ -176,6 +177,12 @@ export function installDilemmas(World) {
     (p.choices = p.choices || []).push({ y: this.year, title: D.title, choice: o.label, out });
     this._log('choice', `${p.name}: ${D.title.toLowerCase()}. ${o.label}. ${out}`, { pol: p.id });
     return out;
+  };
+  P.setBudget = function (p, b) { p.budget = b ? { tax: 1, army: 0.4, science: 0.2, works: 0.2, court: 0.2, ...p.budget, ...b } : null; return p.budget; };
+  P.setOrder = function (p, kind, cell) {
+    if (!kind) { p.order = null; return; }
+    p.order = { kind, cell, since: this.year, until: this.year + 30 };
+    this._log('war', kind === 'defend' ? `${p.name} orders its armies to hold ${this._placeName(cell)}.` : `${p.name} orders its armies to march on ${this._placeName(cell)}.`, { pol: p.id, cell });
   };
   P.activeBoosts = function (p) { return (p.boosts || []).filter(b => b.until >= this.year); };
 }

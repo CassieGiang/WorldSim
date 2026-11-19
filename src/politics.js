@@ -63,12 +63,19 @@ export function installPolitics(World) {
     if (!p.ruler) return fx;
     for (const t of p.ruler.traits) { const e = TRAITS[t]; for (const k in e) if (k !== 'label') fx[k] = k === 'stab' ? fx[k] + e[k] : fx[k] * e[k]; }
     if (p.ruler.age < 16) { fx.stab -= 0.08; fx.aggr *= 0.6; }
-    if (p.boosts) { const b = this._boostFx(p); fx.stab += b.stab; fx.research *= b.research; fx.mil *= b.mil; fx.aggr *= b.aggr; }
+    if (p.boosts || p.budget) { const b = this._boostFx(p); fx.stab += b.stab; fx.research *= b.research; fx.mil *= b.mil; fx.aggr *= b.aggr; }
     return fx;
   };
   // lasting effects of the player's choices (dilemmas)
   P._boostFx = function (p) {
     const fx = { stab: 0, research: 1, mil: 1, aggr: 1, money: 1 };
+    // the player's budget: taxes and where the money goes (army 40%, learning 20%, works 20%, court 20% is neutral)
+    const B = p.budget;
+    if (B) {
+      fx.money *= B.tax * (0.95 + 0.25 * B.works); fx.stab += -(B.tax - 1) * 0.04 + (B.court - 0.2) * 0.06;
+      fx.mil *= 0.6 + B.army; fx.research *= 0.8 + B.science; fx.aggr *= 0.75 + B.army * 0.6;
+      if (B.works > 0.2) fx.stab += (B.works - 0.2) * 0.02;
+    }
     if (!p.boosts) return fx;
     for (const b of p.boosts) if (b.until >= this.year) for (const k in b.fx) fx[k] = k === 'stab' ? fx[k] + b.fx[k] : fx[k] * b.fx[k];
     return fx;
@@ -104,17 +111,20 @@ export function installPolitics(World) {
         if (this._inheritance && p.marriedTo && r.next() < 0.5 && this._inheritance(p)) continue;
         if (r.next() < 0.45 && p.cells >= 6 * this.K) {
           this._newRuler(p, false, true);
+          if (p.heir || p.house) this._dynastySuccession(p, 'usurper');
           if (big) this._log('ruler', `${deposed ? 'Overthrown' : 'Succession crisis'} in ${p.name}: ${oldName} ${deposed ? 'is deposed' : 'dies without a clear heir'}. The usurper ${p.ruler.name} founds the House of ${p.ruler.dynasty}.`, { pol: p.id, big: p.pop > 20e6 });
           p.stability = Math.max(0, p.stability - 0.1);
           if (p.culture === 'sinitic' && p.pop > 5e6) { const old = p.name; p.name = this._genName('sinitic'); this._log('dynasty', `The ${old} falls. The ${p.name} takes the Mandate of Heaven.`, { pol: p.id, big: true }); }
         } else {
           this._newRuler(p, false, false);
+          if (p.heir) this._dynastySuccession(p, 'heir');
           p.stability = Math.max(0, p.stability - 0.18);
           if (big) this._log('ruler', `${oldName} of ${p.name} dies after ${reign} years; rival heirs fight for the throne.`, { pol: p.id });
           if (p.stability < 0.3 && p.cells >= 4 * this.K && r.next() < 0.5) this._fragment(p);
         }
       } else {
         this._newRuler(p);
+        if (p.heir) this._dynastySuccession(p, 'heir');
         if (p.ruler.age < 16) { p.stability -= 0.05; if (big) this._log('ruler', `${oldName} of ${p.name} dies after ${reign} years. The heir ${p.ruler.name} is ${p.ruler.age < 2 ? 'an infant' : 'only ' + p.ruler.age}; a regent rules.`, { pol: p.id }); }
         else if (p.pop > 20e6 && reign >= 40) this._log('ruler', `${oldName} of ${p.name} dies after a reign of ${reign} years. ${p.ruler.name} succeeds.`, { pol: p.id });
       }

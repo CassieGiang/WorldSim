@@ -19,6 +19,9 @@ import { installScenarios } from './scenarios.js';
 import { installEditor } from './editor.js';
 import { installCustom } from './customworld.js';
 import { installDilemmas } from './dilemmas.js';
+import { installGoals } from './goals.js';
+import { installRivals } from './rivals.js';
+import { installDynasty } from './dynasty.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -433,7 +436,10 @@ export class World {
     warD += this._warfare(y);
     this._warfare2(y);
     if (this.governor) this._governorYear(y);
+    this._dynastyYear();
     this._dilemmas();
+    if (this.goals) this._goalsYear();
+    if (this.memory) this._rivalsYear();
     this._expansion(y);
     this._contact(y);
     this._famineLog(y);
@@ -716,7 +722,7 @@ export class World {
         const holy = this.faiths && p.rel >= 0 && q.rel >= 0 ? (p.rel === q.rel ? 0.7 : this.faiths[p.rel].universal && this.faiths[q.rel].universal ? 1.4 * rf.holy : 1) : 1;
         const qAl = this.allianceOf(q.id), allyArmy = qAl ? [...qAl.members].reduce((s, m) => s + (m !== q.id ? this.polities[m].army * 0.5 : 0), 0) : 0;
         const demPeace = p.gov === 'democracy' && q.gov === 'democracy' ? 0.1 : 1;
-        const s = p.army / ((q.army + allyArmy) * q.fx.defense + 1) * (1.6 - q.stability) * holy * demPeace * (this.ideoHostility ? this.ideoHostility(p, q) : 1) * (this.inLeague && this.inLeague(p.id, q.id) ? 0.5 : 1);
+        const s = p.army / ((q.army + allyArmy) * q.fx.defense + 1) * (1.6 - q.stability) * holy * demPeace * (this.memory ? this.rivalWarFactor(p, q) : 1) * (this.ideoHostility ? this.ideoHostility(p, q) : 1) * (this.inLeague && this.inLeague(p.id, q.id) ? 0.5 : 1);
         if (s > bs) { bs = s; best = q; }
       }
       if (best && bs > 0.9 + rng.next() * 0.8) {
@@ -998,22 +1004,22 @@ export class World {
     p.policy.reasoning = d.reasoning || '';
   }
   // ---------- player actions (any time) ----------
-  playerDeclareWar(p, q) { if (!p.alive || !q.alive || this.atWarWith(p.id, q.id)) return false; const al = this.allianceOf(p.id); if (al && al.members.has(q.id)) { this._alDirty = true; al.members.delete(p.id); } this.truces.delete([p.id, q.id].sort((a, b) => a - b).join(':')); this._declare(p, q); return true; }
+  playerDeclareWar(p, q) { if (!p.alive || !q.alive || this.atWarWith(p.id, q.id)) return false; const al = this.allianceOf(p.id); if (al && al.members.has(q.id)) { this._alDirty = true; al.members.delete(p.id); } this.truces.delete([p.id, q.id].sort((a, b) => a - b).join(':')); this._declare(p, q); if (this.rememberWithAllies) this.rememberWithAllies(q.id, p.id, -40, 'attacked us', 'attacked our ally'); return true; }
   playerOfferPeace(p, q) {
     const w = this.wars.find(w => !w.end && ((w.a === p.id && w.b === q.id) || (w.b === p.id && w.a === q.id))); if (!w) return 'no war';
     const theirEx = w.a === q.id ? w.exA : w.exB, theirSide = w.a === q.id ? 1 : -1, winning = w.taken * theirSide > 1;
     const ratio = q.army / Math.max(1, p.army);
-    const pAccept = Math.max(0.05, Math.min(0.95, 0.25 + theirEx * 0.5 - (winning ? 0.3 : 0) - (ratio > 1.5 ? 0.2 : 0)));
-    if (this.rng.next() < pAccept) { this._endWar(w, `${q.name} accepts ${p.name}'s offer of peace`); return 'accepted'; }
+    const pAccept = Math.max(0.05, Math.min(0.95, 0.25 + theirEx * 0.5 - (winning ? 0.3 : 0) - (ratio > 1.5 ? 0.2 : 0) + this.opinion(q.id, p.id) / 300));
+    if (this.rng.next() < pAccept) { this._endWar(w, `${q.name} accepts ${p.name}'s offer of peace`); this.remember(q.id, p.id, 10, 'made peace with us'); return 'accepted'; }
     this._log('peace', `${q.name} rejects ${p.name}'s offer of peace.`, { pol: p.id }); return 'rejected';
   }
   playerProposeAlliance(p, q) {
     if (this.atWarWith(p.id, q.id) || this.allied(p.id, q.id) || q.overlord != null) return 'impossible';
-    const pAccept = (q.rel === p.rel ? 0.55 : 0.3) + (q.gov === p.gov ? 0.1 : 0) + Math.min(0.25, p.army / Math.max(1, q.army) * 0.1);
-    if (this.rng.next() < pAccept) { const n = this.alliances.length; this._ally(p, q, null, ''); return this.allianceOf(p.id) && this.allianceOf(p.id).members.has(q.id) ? 'accepted' : 'impossible'; }
+    const pAccept = (q.rel === p.rel ? 0.55 : 0.3) + (q.gov === p.gov ? 0.1 : 0) + Math.min(0.25, p.army / Math.max(1, q.army) * 0.1) + this.opinion(q.id, p.id) / 250;
+    if (this.rng.next() < pAccept) { const n = this.alliances.length; this._ally(p, q, null, ''); this.remember(q.id, p.id, 20, 'became our ally'); return this.allianceOf(p.id) && this.allianceOf(p.id).members.has(q.id) ? 'accepted' : 'impossible'; }
     this._log('alliance', `${q.name} turns down ${p.name}'s offer of alliance.`, { pol: p.id }); return 'rejected';
   }
-  playerLeaveAlliance(p) { const al = this.allianceOf(p.id); if (!al) return false; this._alDirty = true; al.members.delete(p.id); this._log('alliance', `${p.name} leaves the ${al.name}.`, { pol: p.id }); return true; }
+  playerLeaveAlliance(p) { const al = this.allianceOf(p.id); if (!al) return false; this._alDirty = true; al.members.delete(p.id); for (const m of al.members) this.remember(m, p.id, -25, 'abandoned our alliance'); this._log('alliance', `${p.name} leaves the ${al.name}.`, { pol: p.id }); return true; }
 
   holdCouncilWithRules(n = 5) { for (const p of this.councilMembers(n)) this.applyDecision(p, this.ruleDecision(p), 'rules'); }
 
@@ -1131,5 +1137,8 @@ installScenarios(World);
 installEditor(World);
 installCustom(World);
 installDilemmas(World);
+installGoals(World);
+installRivals(World);
+installDynasty(World);
 World.TECHS = TECHS;
 World.prototype._rngFactory = makeRng;

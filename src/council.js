@@ -105,3 +105,35 @@ export async function writeChapter({ url, model, title, record, before, signal }
   const j = await r.json();
   return ((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
+
+// a letter from one ruler to another, in the sender's voice, from a short gist
+export async function writeLetter({ url, model, from, to, gist, mood, signal }) {
+  const body = {
+    model, stream: false, options: { temperature: 0.8 },
+    messages: [
+      { role: 'system', content: 'You write letters between rulers in an alternate world. Write one letter of 80 to 140 words in the voice of the sender, fitting their era and culture, saying what the gist says and nothing more. Keep every name exactly as given. No headings; end with the sender\'s name.' },
+      { role: 'user', content: `From: ${from}\nTo: ${to}\nMood: ${mood}\nGist: ${gist}` },
+    ],
+  };
+  if (/qwen3/i.test(model)) body.think = false;
+  const r = await fetch(url.replace(/\/$/, '') + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+  if (!r.ok) throw new Error(`Ollama answered ${r.status}`);
+  const j = await r.json();
+  return ((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
+// one or two sentences of live commentary on a turning point, like a documentary narrator
+export async function writeComment({ url, model, event, context, signal }) {
+  const body = {
+    model, stream: false, options: { temperature: 0.8, num_predict: 90 },
+    messages: [
+      { role: 'system', content: 'You are the narrator of a documentary about an alternate history. Comment on the event in one or two short sentences (under 40 words): why it matters or what it may lead to. Keep names exactly as given. Do not invent events.' },
+      { role: 'user', content: `Event: ${event}\nContext: ${context}` },
+    ],
+  };
+  if (/qwen3/i.test(model)) body.think = false;
+  const r = await fetch(url.replace(/\/$/, '') + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+  if (!r.ok) throw new Error(`Ollama answered ${r.status}`);
+  const j = await r.json();
+  return ((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}

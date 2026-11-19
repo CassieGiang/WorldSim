@@ -19,9 +19,9 @@ function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { 
 const cache = new Map();
 export function flagSVG(world, p, w = 30, h = 20) {
   const dyn = p.ruler && !p.ruler.elected ? p.ruler.dynasty : '';
-  const key = `${world.seed}|${p.id}|${p.gov}|${dyn}|${w}`;
+  const design = `${world.seed}|${p.id}|${p.gov}|${dyn}`, key = design + '|' + w;
   if (cache.has(key)) return cache.get(key);
-  const r = rng(hash(key));
+  const r = rng(hash(design));
   const pal = PALETTES[p.culture] || PALETTES.latin;
   const faith = p.rel >= 0 && world.faiths ? world.faiths[p.rel].color : null;
   const pick = (ex = []) => { const c = pal.filter(x => !ex.includes(x)); return c.length ? c[Math.floor(r() * c.length)] : pal[0]; };

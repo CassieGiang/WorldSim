@@ -8,10 +8,13 @@ import { Globe } from './globe.js';
 import { World, fmt } from './engine.js';
 import { GOVS, RES } from './systems.js';
 import { TECHS, REAL_POP, TECH_INDEX as TECH_IDX } from './scenario.js';
-import { askCouncil, listModels, writeFamilyStory, writeChapter } from './council.js';
+import { askCouncil, listModels, writeFamilyStory, writeChapter, writeLetter, writeComment } from './council.js';
 import { FAMILY_TRAITS } from './families.js';
+import { TRAITS as RULER_TRAITS } from './politics.js';
+const TRAIT_LABEL = Object.fromEntries(Object.entries(RULER_TRAITS).map(([k, v]) => [k, v.label]));
 import { WHATIFS } from './whatif.js';
 import { EVENT_KINDS } from './editor.js';
+import { AMBITIONS, CHALLENGES } from './goals.js';
 import { flagSVG } from './flags.js';
 import { CROPS, CLASS_LABEL, INST_LABEL, WORK_ICONS } from './economy.js';
 import { IDEOS, NATION_POLICY } from './ideologies.js';
@@ -36,6 +39,7 @@ const famUI = { picking: false, saved: (() => { try { return JSON.parse(store.ge
 const saveFamStore = () => store.set('families', JSON.stringify(famUI.saved));
 
 function newWorld(seed) {
+  setTimeout(() => { renderPredictions(); commentary.idx = world.events.length; }, 0);
   if (typeof renderGovernor === 'function') setTimeout(renderGovernor, 0);
   branch = null; renderBranch();
   pplCache.clear(); langCache.clear();
@@ -220,6 +224,19 @@ function drawArmies(ctx) {
     ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.2; ctx.stroke(); ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(pt[0], pt[1] - r); ctx.lineTo(pt[0] + r, pt[1]); ctx.lineTo(pt[0], pt[1] + r); ctx.lineTo(pt[0] - r, pt[1]); ctx.closePath();
     ctx.fillStyle = p.color; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke();
+  }
+  // the player's standing orders: a target ring and an arrow from each army
+  for (const s of player.seats.length ? player.seats : [{ id: player.id }]) {
+    const p = world.polities[s.id]; if (!p || !p.alive || !p.order || p.order.until < world.year) continue;
+    const pt = globe.project(world.lon[p.order.cell], world.lat[p.order.cell]); if (!pt || pt[2] < 0.25) continue;
+    const r = 9 * Math.min(1.6, Math.sqrt(sc));
+    ctx.lineWidth = 2; ctx.strokeStyle = p.order.kind === 'defend' ? '#8fd3ff' : '#ffcf5a';
+    ctx.beginPath(); ctx.arc(pt[0], pt[1], r, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(pt[0], pt[1], r * 0.45, 0, Math.PI * 2); ctx.stroke();
+    for (const a of world.armies || []) {
+      if (!a.alive || a.pol !== p.id) continue;
+      const q = globe.project(world.lon[a.cell], world.lat[a.cell]); if (!q || q[2] < 0.25) continue;
+      ctx.setLineDash([6, 4]); ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(pt[0], pt[1]); ctx.stroke(); ctx.setLineDash([]);
+    }
   }
 }
 function drawWorks(ctx) {
@@ -412,6 +429,7 @@ canvas.addEventListener('pointerup', e => {
     const r = canvas.getBoundingClientRect(), ll = globe.invert(e.clientX - r.left, e.clientY - r.top);
     const id = ll ? globe.idAt(ll[0], ll[1]) : 65535;
     if (id < world.N && famUI.moveFam != null) { const f = world.families[famUI.moveFam]; famUI.moveFam = null; selected = id; showCell(id); world.familyAct(f, { key: 'picked', cell: id }); appendEvents(); renderFamilies(); }
+    else if (id < world.N && player.orderPick) { const kind = player.orderPick; player.orderPick = null; giveOrder(kind, id); }
     else if (id < world.N && famUI.picking) { famUI.picking = false; selected = id; showCell(id); openAddFamily(id); }
     else if (id < world.N) { selected = id; showCell(id); showTab('inspect'); if (mode === 'known') { colorsDirty = true; renderLegend(); } } else { selected = -1; $('inspector').innerHTML = '<div class="hint">Click land to inspect it.</div>'; }
     needsDraw = true;
@@ -421,7 +439,7 @@ canvas.addEventListener('pointerup', e => {
 canvas.addEventListener('wheel', e => { e.preventDefault(); globe.view.scale = Math.max(0.7, Math.min(10, globe.view.scale * Math.exp(-e.deltaY * 0.0012))); needsDraw = true; }, { passive: false });
 window.addEventListener('resize', resize);
 
-$('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '❚❚ Pause' : '▶ Play'; };
+$('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '❚❚ Pause' : (pace.turn && player.id >= 0 ? `▶ Next ${pace.turn === 1 ? 'year' : pace.turn + ' years'}` : '▶ Play'); pace.stopAt = playing && pace.turn && player.id >= 0 ? world.year + pace.turn : null; pace.evIdx = world.events.length; };
 $('step').onclick = () => { stepAll(); afterSteps(); };
 $('speed').oninput = e => { speed = [1, 2, 5, 10, 20, 50, 100][+e.target.value]; $('speedv').textContent = speed + ' yr/s'; };
 $('newworld').onclick = () => newWorld(Math.floor(Math.random() * 1e6));
@@ -433,6 +451,7 @@ $('modes').onclick = e => { const k = e.target.dataset.mode; if (!k) return; mod
 $('states').onclick = e => { const el = e.target.closest('.st'); if (!el) return; const p = world.polities[+el.dataset.pol]; if (p.capital >= 0) focusCell(p.capital); };
 
 let jumpTarget = null;
+const pace = { turn: +store.get('turn', '0'), alerts: store.get('alerts', '1') === '1', stopAt: null, lastDecision: {}, evIdx: 0 };
 function renderLegend() {
   const m = MODES[mode];
   const items = m.legendFn ? m.legendFn() : m.legend ? m.legend.map((l, n) => [l, m.legendColors[n]]) : [];
@@ -600,13 +619,24 @@ function openDilemma() {
   const seat = player.seats.find(x => x.id === d.pol);
   $('story-title').textContent = `${seat && player.seats.length > 1 ? seat.name + ': ' : ''}${d.title}, ${d.year}`;
   $('story-body').innerHTML = `<div class="crow">${flagSVG(world, p, 36, 24)} <b>${esc(p.name)}</b><span class="dim">${world._rulerTitle(p)} · ${fmt(p.pop)} · stability ${Math.round(p.stability * 100)}% · treasury ${fmt(Math.max(0, p.treasury || 0))}</span></div>
-    <p style="font-size:15px;line-height:1.5">${esc(d.text)}</p>
+    ${reportHTML(d.pol)}
+    <p style="font-size:15px;line-height:1.5" id="dl-text">${esc(d.text)}</p>
+    ${council.mode === 'llm' && d.ctx && d.ctx.q !== undefined ? '<div class="crow"><button class="xs" id="dl-letter">Read the letter</button><span class="dim" id="dl-lmsg"></span></div>' : ''}
     <div class="dlm">${d.options.map(o => `<button data-k="${o.key}"><b>${esc(o.label)}</b><span>${esc(o.hint)}</span></button>`).join('')}</div>
     <p class="dim" style="margin-top:8px"><label><input type="checkbox" id="dl-auto"> let my ministers decide from now on (switch back in the Play tab)</label></p>`;
   $('story').classList.add('open'); $('story-close').style.display = 'none';
+  if ($('dl-letter')) $('dl-letter').onclick = async () => {
+    const Q = world.polities[d.ctx.q], o = world.opinion(Q.id, p.id);
+    $('dl-lmsg').textContent = 'The envoy unrolls the letter…'; $('dl-letter').disabled = true;
+    try {
+      const txt = await writeLetter({ url: council.url, model: council.model, from: `${world._rulerTitle(Q)} of ${Q.name}`, to: `${world._rulerTitle(p)} of ${p.name}`, gist: d.text, mood: o < -30 ? 'cold and threatening' : o > 20 ? 'warm and friendly' : 'formal' });
+      $('dl-text').innerHTML = `<i style="display:block;white-space:pre-wrap;border-left:3px solid var(--gold);padding-left:10px">${esc(txt)}</i>`; $('dl-lmsg').textContent = '';
+    } catch (e) { $('dl-lmsg').textContent = 'No letter: ' + e.message; }
+  };
   $('story-body').querySelectorAll('.dlm button').forEach(b => b.onclick = () => {
     if ($('dl-auto').checked) store.set('dilemmaAuto', '1');
-    const out = world.resolveDilemma(d, b.dataset.k);
+    const out = world.resolveDilemma(d, b.dataset.k); pace.lastDecision[d.pol] = world.year;
+    for (const sw of world.switchTo || []) { const k = player.seats.findIndex(x => x.id === sw.from); if (k >= 0) { player.active = k; setPlayer(sw.to); } } world.switchTo = [];
     $('story-body').innerHTML = `<p style="font-size:15px">${esc(out)}</p><div class="crow"><button id="dl-ok" class="primary">Continue</button></div>`;
     $('dl-ok').onclick = () => { $('story').classList.remove('open'); $('story-close').style.display = ''; player.busy = false; appendEvents(); renderPlayer(); updatePanels(); colorsDirty = true; needsDraw = true; };
   });
@@ -704,9 +734,39 @@ function renderPlayer() {
     <div class="crow"><select id="pa-ally">${pOpts(allyC, 'nobody')}</select><button class="xs" id="pa-ally-go">Propose alliance</button>${al ? `<button class="xs" id="pa-leave">Leave ${al.name}</button>` : ''}</div>
     <div class="crow"><label class="dim">Toward our peoples</label><select id="pa-nat">${Object.entries(NATION_POLICY).map(([k, v]) => `<option value="${k}" ${p.nationPolicy === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
     <div class="crow"><button class="xs" id="pa-council">Hold council now</button><button class="xs" id="pa-stop">Stop playing</button><span id="pa-msg" class="dim"></span></div>
+    <div id="pa-house"></div><div id="pa-goal"></div><div id="pa-budget"></div><div id="pa-army"></div><div id="pa-opin"></div>
+    <div class="isec">Pace</div>
+    <div class="crow"><label class="dim">Turns <select id="pa-turn"><option value="0">off (free running)</option><option value="1">1 year</option><option value="5">5 years</option><option value="10">10 years</option><option value="25">25 years</option></select></label></div>
+    <div class="crow"><label class="dim"><input type="checkbox" id="pa-alert" ${pace.alerts ? 'checked' : ''}> pause on events that concern us</label></div>
     <div class="crow"><label class="dim"><input type="checkbox" id="pa-dauto" ${store.get('dilemmaAuto', '0') === '1' ? 'checked' : ''}> ministers decide the dilemmas</label></div>
     ${(() => { const bs = world.activeBoosts(p); return bs.length ? `<div class="isec">Lasting effects</div>${bs.map(b => `<div class="dim">${esc(b.label)} <span style="opacity:.7">until ${b.until}</span> · ${boostText(b.fx)}</div>`).join('')}` : ''; })()}
     ${p.choices && p.choices.length ? `<div class="isec">Your recent choices</div>${p.choices.slice(-4).reverse().map(c => `<div class="dim"><b>${c.y}</b> ${esc(c.title)}: ${esc(c.choice)}</div>`).join('')}` : ''}`;
+  const B = p.budget || { tax: 1, army: 0.4, science: 0.2, works: 0.2, court: 0.2 };
+  $('pa-budget').innerHTML = `<div class="isec">Budget</div>
+    <div class="crow bud"><label>Taxes</label><input type="range" id="bd-tax" min="0.6" max="1.5" step="0.05" value="${B.tax}"><span>${Math.round(B.tax * 100)}%</span></div>
+    ${[['army', 'Army'], ['science', 'Learning'], ['works', 'Roads and works'], ['court', 'Court and alms']].map(([k, l]) => `<div class="crow bud"><label>${l}</label><input type="range" data-bd="${k}" min="0" max="1" step="0.05" value="${B[k]}"><span>${Math.round(B[k] * 100)}%</span></div>`).join('')}
+    <div class="dim" id="bd-fx">${boostText(budgetFx(B))}</div>`;
+  const readBudget = (changed) => {
+    const sh = {}; document.querySelectorAll('[data-bd]').forEach(i => sh[i.dataset.bd] = +i.value);
+    // keep the four shares summing to 100%: the others shrink or grow in proportion
+    const rest = Object.keys(sh).filter(k => k !== changed), left = 1 - (changed ? sh[changed] : 0), tot = rest.reduce((a, k) => a + sh[k], 0);
+    for (const k of rest) sh[k] = tot > 0 ? sh[k] / tot * left : left / rest.length;
+    document.querySelectorAll('[data-bd]').forEach(i => { i.value = sh[i.dataset.bd]; i.nextElementSibling.textContent = Math.round(sh[i.dataset.bd] * 100) + '%'; });
+    const b = world.setBudget(P(), { tax: +$('bd-tax').value, ...sh });
+    $('bd-tax').nextElementSibling.textContent = Math.round(b.tax * 100) + '%'; $('bd-fx').textContent = boostText(budgetFx(b));
+  };
+  $('bd-tax').oninput = () => readBudget(null);
+  document.querySelectorAll('[data-bd]').forEach(i => i.oninput = () => readBudget(i.dataset.bd));
+  const o = p.order && p.order.until >= world.year ? p.order : null;
+  $('pa-army').innerHTML = `<div class="isec">Armies</div>
+    <div class="dim">${o ? (o.kind === 'defend' ? 'Holding ' : 'Marching on ') + esc(world._placeName(o.cell)) + ` (since ${o.since})` : 'Your generals choose their own targets.'}</div>
+    <div class="crow"><button class="xs" id="or-att">March on…</button><button class="xs" id="or-def">Hold…</button>${o ? '<button class="xs" id="or-clr">Clear order</button>' : ''}</div>`;
+  $('or-att').onclick = () => { player.orderPick = 'attack'; $('pa-msg').textContent = 'Click the province to march on.'; };
+  $('or-def').onclick = () => { player.orderPick = 'defend'; $('pa-msg').textContent = 'Click the province to hold.'; };
+  if ($('or-clr')) $('or-clr').onclick = () => { world.setOrder(P(), null); renderPlayer(); };
+  renderGoal(p); renderOpinions(p); renderHouse(p);
+  $('pa-turn').value = String(pace.turn); $('pa-turn').onchange = () => { pace.turn = +$('pa-turn').value; store.set('turn', pace.turn); pace.stopAt = null; };
+  $('pa-alert').onchange = () => { pace.alerts = $('pa-alert').checked; store.set('alerts', pace.alerts ? '1' : '0'); };
   $('pa-dauto').onchange = () => store.set('dilemmaAuto', $('pa-dauto').checked ? '1' : '0');
   const P = () => world.polities[player.id], Q = id => world.polities[+id];
   const msg = t => { $('pa-msg').textContent = t; appendEvents(); colorsDirty = true; needsDraw = true; };
@@ -718,9 +778,165 @@ function renderPlayer() {
   $('pa-council').onclick = () => openPlayerCouncil();
   $('pa-stop').onclick = () => setPlayer(-1);
 }
+// ---------- goals, challenges, end cards ----------
+function toast(html) {
+  let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.innerHTML = html + '<div class="dim" style="margin-top:4px">Paused. Press Play to go on.</div>'; t.classList.add('on');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 7000);
+}
+// ---------- predictions (for spectators and videos) ----------
+function renderPredictions() {
+  const box = $('predbox'); if (!box) return;
+  const open = (world.predictions || []).filter(x => !x.scored);
+  const done = (world.predictions || []).filter(x => x.scored).slice(-2);
+  const top = world._largest().slice(0, 8), faiths = faithRank().slice(0, 6);
+  box.innerHTML = `${open.map(x => `<div class="dim">For <b>${x.year}</b>: ${esc(x.largest)} the largest; ${esc(x.popLabel)} people; ${esc(x.faith)} the biggest faith.</div>`).join('')}
+    ${done.map(x => `<div class="dim">${x.year}: <b>${x.points}</b> of 3 right${x.notes ? ' (' + esc(x.notes) + ')' : ''}</div>`).join('')}
+    <div class="crow" style="flex-wrap:wrap;gap:4px;margin-top:4px"><label class="dim">In <select id="pr-year">${[100, 250, 500, 1000].map(n => `<option value="${world.year + n}">${world.year + n}</option>`).join('')}</select></label>
+      <select id="pr-largest">${top.map(p => `<option>${esc(p.name)}</option>`).join('')}<option>someone new</option></select>
+      <select id="pr-pop">${POP_BUCKETS.map((b, k) => `<option value="${k}">${b[2]}</option>`).join('')}</select>
+      <select id="pr-faith">${faiths.map(f => `<option>${esc(f.name)}</option>`).join('')}<option>a new faith</option></select>
+      <button class="xs" id="pr-go">Predict</button></div>`;
+  $('pr-go').onclick = () => {
+    const k = +$('pr-pop').value;
+    (world.predictions || (world.predictions = [])).push({ made: world.year, year: +$('pr-year').value, largest: $('pr-largest').value, pop: k, popLabel: POP_BUCKETS[k][2], faith: $('pr-faith').value, known: top.map(p => p.name), knownF: faiths.map(f => f.name) });
+    world._log('council', `Prediction for ${$('pr-year').value}: ${$('pr-largest').value} will be the largest state, with ${POP_BUCKETS[k][2]} people in the world and ${$('pr-faith').value} the biggest faith.`, { big: true });
+    appendEvents(); renderPredictions();
+  };
+}
+function faithRank() { const t = new Map(); if (world.rel) for (let i = 0; i < world.N; i++) if (world.rel[i] >= 0) t.set(world.rel[i], (t.get(world.rel[i]) || 0) + world.pop[i]); return [...t].sort((a, b) => b[1] - a[1]).map(([k]) => world.faiths[k]); }
+const POP_BUCKETS = [[0, 2e8, 'under 200 million'], [2e8, 4e8, '200–400 million'], [4e8, 8e8, '400–800 million'], [8e8, 2e9, '0.8–2 billion'], [2e9, 5e9, '2–5 billion'], [5e9, 1e12, 'over 5 billion']];
+function checkPredictions() {
+  for (const x of world.predictions || []) {
+    if (x.scored || world.year < x.year) continue;
+    const big = world._largest()[0], wp = world.worldPop(), f = faithRank()[0];
+    const okL = x.largest === 'someone new' ? !x.known.includes(big.name) : big.name === x.largest;
+    const okP = wp >= POP_BUCKETS[x.pop][0] && wp < POP_BUCKETS[x.pop][1];
+    const okF = f && (x.faith === 'a new faith' ? !x.knownF.includes(f.name) : f.name === x.faith);
+    x.scored = true; x.points = okL + okP + okF;
+    x.notes = `largest ${big.name}, ${fmt(wp)} people, ${f ? f.name : 'no faith'}`;
+    world._log('council', `Prediction made in ${x.made} for ${x.year}: ${x.points} of 3 right. The largest state is ${big.name}, the world has ${fmt(wp)} people and the biggest faith is ${f ? f.name : 'none'}.`, { big: true });
+    if (playing) $('play').click();
+    toast(`<b>Prediction for ${x.year}: ${x.points} of 3 right</b><br>${okL ? '✓' : '✗'} largest: ${esc(big.name)} (you said ${esc(x.largest)})<br>${okP ? '✓' : '✗'} people: ${fmt(wp)} (you said ${esc(x.popLabel)})<br>${okF ? '✓' : '✗'} biggest faith: ${esc(f ? f.name : '–')} (you said ${esc(x.faith)})`);
+    renderPredictions();
+  }
+}
+// ---------- live AI commentary on turning points ----------
+const commentary = { on: store.get('commentary', '0') === '1', busy: false, last: -999, idx: 0 };
+function maybeComment() {
+  if (!commentary.on || council.mode !== 'llm' || commentary.busy) { commentary.idx = world.events.length; return; }
+  const evs = world.events.slice(commentary.idx).filter(e => e.big); commentary.idx = world.events.length;
+  if (!evs.length || world.year - commentary.last < 15) return;
+  const e = evs.at(-1); commentary.busy = true; commentary.last = world.year;
+  const top = world._largest().slice(0, 4).map(p => p.name).join(', ');
+  writeComment({ url: council.url, model: council.model, event: `${e.y}: ${e.text}`, context: `Year ${world.year}. Largest states: ${top}. World population ${fmt(world.worldPop())}.` })
+    .then(t => { const c = $('commentary'); c.textContent = t; c.classList.add('on'); clearTimeout(maybeComment.h); maybeComment.h = setTimeout(() => c.classList.remove('on'), 9000); })
+    .catch(() => {}).finally(() => { commentary.busy = false; });
+}
+function renderHouse(p) {
+  const el = $('pa-house'), h = world.houseInfo(p); if (!el) return;
+  if (!h || h.ruler.elected) { el.innerHTML = ''; return; }
+  const tr = t => t.map(x => TRAIT_LABEL[x] || x).join(', ');
+  el.innerHTML = `<div class="isec">House of ${esc(h.house)}${h.exile ? ' (in exile)' : ''}</div>
+    <div class="dim"><b>${esc(world._rulerTitle(p))}</b>, ${h.ruler.age}${h.ruler.traits.length ? ' · ' + tr(h.ruler.traits) : ''}${h.ruler.dynasty !== h.house ? ` · House of ${esc(h.ruler.dynasty)}` : ''}</div>
+    ${h.heir ? `<div class="dim">Heir: <b>${esc(h.heir.name)}</b>, ${h.heir.age}${h.heir.traits.length ? ' · ' + tr(h.heir.traits) : h.heir.age < 7 ? ' · too young to teach' : ' · not yet educated'}${h.heir.married ? ' · married' + (h.heir.married.pol >= 0 ? ' into ' + esc(world.polities[h.heir.married.pol].name) : '') : ''}</div>` : ''}
+    ${h.marriedTo ? `<div class="dim">Tied by marriage to ${esc(h.marriedTo)}</div>` : ''}
+    ${h.exile ? `<div class="dim">The House of ${esc(h.exile.house)} has been in exile since ${h.exile.since}${h.exile.waiting ? ' and waits for its chance' : ''}.</div>` : ''}`;
+}
+function renderOpinions(p) {
+  const el = $('pa-opin'); if (!el) return;
+  const list = world.neighbourOpinions(p).slice(0, 7);
+  if (!list.length) { el.innerHTML = ''; return; }
+  const word = v => v > 50 ? 'devoted' : v > 20 ? 'friendly' : v > 5 ? 'warm' : v > -5 ? 'indifferent' : v > -20 ? 'cool' : v > -50 ? 'hostile' : 'hateful';
+  el.innerHTML = `<div class="isec">What others think of us</div>${list.map(o => `<div class="opin" title="${esc(o.why.map(w => `${w.y}: ${w.why} (${w.d > 0 ? '+' : ''}${w.d})`).join('\n') || 'no memories yet')}"><span>${esc(o.name)}</span><span class="obar"><i style="left:${o.v < 0 ? 50 + o.v / 2 : 50}%;width:${Math.abs(o.v) / 2}%;background:${o.v < 0 ? '#d0605a' : '#6fbf73'}"></i></span><span class="dim">${word(o.v)}${o.why.length ? ': ' + esc(o.why.at(-1).why) : ''}</span></div>`).join('')}`;
+}
+function renderGoal(p) {
+  const el = $('pa-goal'); if (!el) return;
+  const g = (world.goals || []).find(x => x.pol === p.id && x.status === 'active') || (world.goals || []).find(x => x.status === 'active' && x.kind === 'challenge');
+  if (g) {
+    el.innerHTML = `<div class="isec">${g.kind === 'challenge' ? 'Challenge: ' + esc(g.challenge.title) : 'Ambition'}</div><div>${esc(g.describe)}</div>
+      <div class="gbar"><i style="width:${Math.round(g.progress * 100)}%"></i></div><div class="dim">${esc(g.text)} · ${Math.max(0, g.deadline - world.year)} years left${g.kind !== 'challenge' ? ' · <a href="#" id="gl-drop">give up</a>' : ''}</div>`;
+    if ($('gl-drop')) $('gl-drop').onclick = e => { e.preventDefault(); world.setGoal(p.id, null); renderPlayer(); };
+    return;
+  }
+  const av = Object.entries(AMBITIONS).filter(([k, A]) => !A.available || A.available(world, p));
+  el.innerHTML = `<div class="isec">Ambition</div><div class="crow"><select id="gl-kind">${av.map(([k, A]) => `<option value="${k}">${A.label}</option>`).join('')}</select><button class="xs" id="gl-set">Set</button></div><div class="dim" id="gl-desc"></div>`;
+  const show = () => { const A = AMBITIONS[$('gl-kind').value]; $('gl-desc').textContent = `${A.years} years. Scored at the end against how the world went.`; };
+  $('gl-kind').onchange = show; show();
+  $('gl-set').onclick = () => { world.setGoal(p.id, $('gl-kind').value); appendEvents(); renderPlayer(); };
+}
+function checkGoalEnds() {
+  const ends = world.goalEnds || []; if (!ends.length || player.busy) return;
+  const g = ends.shift(), sc = g.score, p = world.polities[g.pol];
+  player.busy = true; if (playing) $('play').click();
+  const won = g.status === 'won';
+  const best = JSON.parse(store.get('scores', '{}')), key = g.kind === 'challenge' ? 'ch:' + g.challenge.id : 'amb:' + g.kind;
+  const isBest = !best[key] || sc.pts > best[key]; if (isBest) { best[key] = sc.pts; store.set('scores', JSON.stringify(best)); }
+  $('story-title').textContent = won ? (g.kind === 'challenge' ? `Challenge won: ${g.challenge.title}` : 'Ambition fulfilled') : (g.kind === 'challenge' ? `Challenge lost: ${g.challenge.title}` : 'Ambition failed');
+  $('story-body').innerHTML = `<div class="crow">${p ? flagSVG(world, p, 42, 28) : ''} <b style="font-size:16px">${esc(p ? p.name : '')}</b><span class="dim">${g.start}–${world.year}</span></div>
+    <p>${esc(g.describe)}</p>
+    <div class="score"><div><b>${sc.pts}</b><span>points${isBest ? ' · your best' : ` · best ${best[key]}`}</span></div>
+      <div><b>${fmt(sc.popFrom)} → ${fmt(sc.popTo)}</b><span>people (${sc.growth >= 1 ? 'grew' : 'shrank'} ${sc.growth.toFixed(2)}× against the world)</span></div>
+      <div><b>${sc.cellsFrom} → ${sc.cellsTo}</b><span>provinces</span></div>
+      <div><b>+${sc.techs}</b><span>inventions learned</span></div></div>
+    ${sc.inventions.length ? `<div class="isec">This world against ours</div>${sc.inventions.map(t => `<div class="dim">${esc(t.name)}: ${t.here} here (${esc(t.by)}), ${t.real < 0 ? -t.real + ' BC' : t.real} in our world</div>`).join('')}` : ''}
+    <div class="crow" style="margin-top:10px"><button class="primary" id="ge-ok">Play on</button><button id="ge-new">${g.kind === 'challenge' ? 'Try again' : 'Choose a new ambition'}</button></div>`;
+  $('story').classList.add('open'); $('story-close').style.display = 'none';
+  const close = () => { $('story').classList.remove('open'); $('story-close').style.display = ''; player.busy = false; renderPlayer(); };
+  $('ge-ok').onclick = close;
+  $('ge-new').onclick = () => { close(); if (g.kind === 'challenge') startChallenge(g.challenge); else showTab('play'); };
+}
+function openChallenges() {
+  if (playing) $('play').click();
+  const best = JSON.parse(store.get('scores', '{}'));
+  $('story-title').textContent = 'Challenges';
+  $('story-body').innerHTML = `<p class="dim">Each starts a fresh world. History is not scripted: the rivals, plagues and luck are the simulation's.</p>
+    <div class="dlm">${CHALLENGES.map(c => `<button data-ch="${c.id}"><b>${esc(c.title)} <span style="font-size:11px;opacity:.6">from ${c.start || 1}${c.as === 'governor' ? ', as a governor' : ''}${best['ch:' + c.id] ? ' · best ' + best['ch:' + c.id] : ''}</span></b><span>${esc(c.text)}</span></button>`).join('')}</div>`;
+  $('story').classList.add('open');
+  $('story-body').querySelectorAll('[data-ch]').forEach(b => b.onclick = () => { $('story').classList.remove('open'); startChallenge(CHALLENGES.find(c => c.id === b.dataset.ch)); });
+}
+function startChallenge(c) {
+  if (geo !== geoEarth) setGeo(null);
+  $('scen').value = c.start ? String(c.start) : '';
+  newWorld(+$('seed').value || 1);
+  const cell = world.challengeCell(c);
+  if (c.as === 'governor') {
+    world.startGovernor(cell, world.ppl[cell]);
+    world.setGoal(world.owner[cell], 'challenge', { challenge: c, gov: world.governor });
+    renderGovernor(); showTab('play');
+  } else {
+    setPlayer(world.owner[cell]);
+    world.setGoal(world.owner[cell], 'challenge', { challenge: c });
+  }
+  world._log('goal', `Challenge: ${c.title}. ${c.text}`, { big: true });
+  appendEvents(); renderPlayer(); colorsDirty = true; needsDraw = true;
+  const pt = [c.at[0], c.at[1]]; globe.view.lon = pt[0]; globe.view.lat = pt[1]; needsDraw = true;
+}
+// what changed since the last decision, shown on decision cards
+function reportHTML(pid) {
+  const r = world.reportSince(pid, pace.lastDecision[pid] ?? Math.max(world.history.length ? world.history[0].y : 1, world.year - 10)); if (!r) return '';
+  const d = (a, b, f = fmt) => a == null ? f(b) : `${f(a)} → ${f(b)}`;
+  const items = [`<span>People <b>${d(r.popWas, r.popNow)}</b></span>`, `<span>Provinces <b>${d(r.cellsWas, r.cellsNow, x => x)}</b></span>`, r.techsWas != null && r.techsNow > r.techsWas ? `<span>Inventions <b>+${r.techsNow - r.techsWas}</b></span>` : '', `<span>Stability <b>${Math.round(r.stab * 100)}%</b></span>`];
+  const wars = r.wars.map(w => `${w.end ? 'ended' : 'at war'}: ${esc(w.them)} (${w.start}${w.end ? '–' + w.end : ''})`).join(' · ');
+  return `<div class="report"><div class="dim">Since ${r.since}</div><div class="rrow">${items.join('')}</div>${wars ? `<div class="dim">${wars}</div>` : ''}</div>`;
+}
+function budgetFx(B) { const p0 = { budget: B, boosts: null }; return world._boostFx.call(world, p0); }
+function giveOrder(kind, c) {
+  const p = world.polities[player.id]; if (!p || !p.alive) return;
+  const o = world.owner[c];
+  if (kind === 'attack') {
+    if (o === p.id) { kind = 'defend'; }
+    else if (o < 0) { $('pa-msg').textContent = 'Nobody rules that land: expansion settles it, not armies.'; showTab('play'); return; }
+    else if (!world.atWarWith(p.id, o)) {
+      if (!confirm(`We are at peace with ${world.polities[o].name}. Declare war and march?`)) { showTab('play'); return; }
+      world.playerDeclareWar(p, world.polities[o]);
+    }
+  }
+  world.setOrder(p, kind, c); appendEvents(); showTab('play'); renderPlayer(); colorsDirty = true; needsDraw = true;
+}
 function boostText(fx) {
   const L = { money: 'income', research: 'research', mil: 'army', aggr: 'war appetite', stab: 'stability' };
-  return Object.entries(fx).map(([k, v]) => k === 'stab' ? `${L[k]} ${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}/yr` : `${L[k]} ${v >= 1 ? '+' : ''}${Math.round((v - 1) * 100)}%`).join(', ');
+  return Object.entries(fx).filter(([k, v]) => k === 'stab' ? Math.abs(v) > 0.0004 : Math.abs(v - 1) > 0.004).map(([k, v]) => k === 'stab' ? `${L[k]} ${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}/yr` : `${L[k]} ${v >= 1 ? '+' : ''}${Math.round((v - 1) * 100)}%`).join(', ');
 }
 function openPlayerCouncil() {
   const p = world.polities[player.id]; if (!p || !p.alive) return;
@@ -731,7 +947,8 @@ function openPlayerCouncil() {
   const allyC = [...near].map(q => world.polities[q]).filter(q => q.alive && q.id !== p.id && !world.allied(p.id, q.id) && !world.atWarWith(p.id, q.id) && q.overlord == null).sort((a, b) => b.pop - a.pop).slice(0, 15);
   const F = [['science', 'Learning: fund scholars'], ['farming', 'Farming: clear land, fill granaries'], ['army', 'The army: raise soldiers'], ['expansion', 'Expansion: push into unclaimed land'], ['stability', 'Order at home: calm the provinces'], ['trade', 'Trade: roads, ships, markets']];
   $('story-title').textContent = `${player.seats.length > 1 ? player.seats[player.active].name + ": " : ""}Council of ${p.name}, year ${world.year}`;
-  $('story-body').innerHTML = `<pre class="brief">${world.brief(p).replace(/</g, '&lt;')}</pre>
+  const rep = reportHTML(p.id); pace.lastDecision[p.id] = world.year;
+  $('story-body').innerHTML = `${rep}<pre class="brief">${world.brief(p).replace(/</g, '&lt;')}</pre>
     <div class="isec">Priority for the next ${council.every} years</div>
     ${F.map(([k, l], n) => `<label class="opt"><input type="radio" name="pc-focus" value="${k}" ${p.policy && p.policy.focus === k || (!p.policy && n === 4) ? 'checked' : ''}> ${l}</label>`).join('')}
     <div class="isec">Diplomacy</div>
@@ -786,9 +1003,17 @@ function frame(now) {
     if (world.year >= jumpTarget) jumpTarget = null;
   } else if (playing) {
     acc += dt * speed;
-    while (acc >= 1 && performance.now() - t0 < 30) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); acc -= 1; stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (world.dilemmaQ && world.dilemmaQ.length && !player.busy) openDilemma(); if (player.busy) break; }
+    while (acc >= 1 && performance.now() - t0 < 30 && !(pace.stopAt && world.year >= pace.stopAt)) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); acc -= 1; stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (world.dilemmaQ && world.dilemmaQ.length && !player.busy) openDilemma(); if (player.busy) break; }
     if (acc > 3) acc = 0;
   }
+  if (stepped && player.id >= 0) {
+    if (pace.stopAt && world.year >= pace.stopAt && playing) { $('play').click(); renderPlayer(); }
+    if (pace.alerts && playing) { const al = world.playerAlerts(pace.evIdx); if (al.length) { $('play').click(); toast(al.map(e => `${e.y}: ${e.text}`).slice(-3).join('<br>')); } }
+    pace.evIdx = world.events.length;
+  }
+  if (stepped && world.goalEnds && world.goalEnds.length) checkGoalEnds();
+  if (stepped && world.predictions) checkPredictions();
+  if (stepped) maybeComment();
   if (stepped) { appendEvents(); panelTimer += stepped; needsDraw = true; colorsDirty = true; if (panelTimer >= 1) { updatePanels(); panelTimer = 0; if (MODES[mode].legendFn && world.year % 10 === 0) renderLegend(); } }
   if (rec) needsDraw = true;
   if (needsDraw) { draw(); drawSecond(); needsDraw = false; if (rec) recFrame(); }
@@ -1271,6 +1496,8 @@ function edPaintAt(e) {
   if (tool === 'people') pplCache.clear();
   colorsDirty = true; needsDraw = true;
 }
+$('chalbtn').onclick = openChallenges;
+$('c-comm').checked = commentary.on; $('c-comm').onchange = () => { commentary.on = $('c-comm').checked; store.set('commentary', commentary.on ? '1' : '0'); };
 $('editbtn').onclick = () => { ed.on = !ed.on; $('editor').style.display = ed.on ? '' : 'none'; $('editbtn').classList.toggle('on', ed.on); if (ed.on) { if (playing) $('play').click(); edFill(); } };
 $('ed-done').onclick = () => $('editbtn').click();
 $('ed-tool').onchange = edFill; $('ed-find').oninput = edFill;

@@ -54,13 +54,38 @@ export function installArmies(World) {
     if (a.cell === target) return;
     const p = this.polities[a.pol], t = p.tech;
     let steps = 1 + (t[T.horses] || p.nomad ? 1 : 0) + (t[T.roads] ? 1 : 0) + (t[T.railways] ? 3 : 0) + (t[T.combustion] ? 2 : 0);
+    const D = this._pathField(target, !!t[T.sailing], a.cell);
     while (steps-- > 0 && a.cell !== target) {
-      let best = -1, bd = this.distDeg(a.cell, target);
-      for (const j of this.nb[a.cell]) { const d = this.distDeg(j, target) + this.rough[j] * 1.2; if (d < bd) { bd = d; best = j; } }
-      if (best < 0) break;
+      let best = -1, bd = D[a.cell] >= 0 ? D[a.cell] : 1e9, br = 9;
+      const step = j => { if (D[j] < 0) return; if (D[j] < bd || (D[j] === bd && best >= 0 && this.rough[j] < br)) { bd = D[j]; best = j; br = this.rough[j]; } };
+      for (const j of this.nb[a.cell]) step(j);
+      if (t[T.sailing]) for (const j of this.sl[a.cell]) step(j);
+      if (best < 0) {   // no way there: fall back to heading straight for it
+        let gd = this.distDeg(a.cell, target);
+        for (const j of this.nb[a.cell]) { const d = this.distDeg(j, target) + this.rough[j] * 1.2; if (d < gd) { gd = d; best = j; } }
+        if (best < 0) break;
+      }
       if (this.rough[best] > 0.6 && this.rng.next() < 0.5) steps--;   // passes and mountains slow the march
+      if (this.sl[a.cell].includes(best) && !this.nb[a.cell].includes(best)) steps -= 1;   // embarking takes time
       a.cell = best; a.trail.push(best); if (a.trail.length > 12) a.trail.shift();
     }
+  };
+  // steps from every province to a target over land and (for seafarers) short sea crossings; cached for the year
+  // the search stops a little past the army's own province, which is all the march needs
+  P._pathField = function (target, sea, from) {
+    if (!this._pf || this._pfYear !== this.year) { this._pf = new Map(); this._pfYear = this.year; }
+    const key = target * 2 + (sea ? 1 : 0);
+    let D = this._pf.get(key); if (D && (D[from] >= 0 || D.full)) return D;
+    D = new Int32Array(this.N).fill(-1); D[target] = 0; D.full = true;
+    const q = [target];
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h], d = D[i] + 1;
+      if (D[from] >= 0 && D[i] > D[from] + 2) { D.full = false; break; }
+      for (const j of this.nb[i]) if (D[j] < 0) { D[j] = d; q.push(j); }
+      if (sea) for (const j of this.sl[i]) if (D[j] < 0) { D[j] = d + 1; q.push(j); }
+    }
+    this._pf.set(key, D);
+    return D;
   };
 
   // the yearly campaign: move, forage, fight. Returns how the front should move.
@@ -72,7 +97,10 @@ export function installArmies(World) {
     const close = this.distDeg(aA.cell, aB.cell);
     // the stronger side marches on the enemy's capital; the weaker moves to meet the invader
     const sA = this._strength(aA, true), sB = this._strength(aB, false);
-    const tA = close < 10 ? aB.cell : B.capital, tB = close < 10 ? aA.cell : (sB > sA * 1.3 ? A.capital : aA.cell);
+    let tA = close < 10 ? aB.cell : B.capital, tB = close < 10 ? aA.cell : (sB > sA * 1.3 ? A.capital : aA.cell);
+    // a player's standing order overrides the general's plan
+    const ord = (X, enemy) => { const o = X.order; if (!o || o.until < this.year) return -1; if (o.kind === 'defend') return o.cell; return this.owner[o.cell] === enemy ? o.cell : -1; };
+    const oA = ord(A, B.id), oB = ord(B, A.id); if (oA >= 0) tA = oA; if (oB >= 0) tB = oB;
     if (tA >= 0) this._march(aA, tA); if (tB >= 0) this._march(aB, tB);
     // living off the land: a big army strips a province; hunger and disease thin the ranks
     for (const a of [aA, aB]) {

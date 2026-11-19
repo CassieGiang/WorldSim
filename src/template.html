@@ -12,6 +12,7 @@
   header button { white-space:nowrap; } header .grp label { white-space:nowrap; }
   header { overflow-x:auto; scrollbar-width:thin; }
   @media (max-width: 1750px) { header { gap:10px !important; } header button { padding:6px 9px; font-size:12px; } #speedv, .yearbox small { display:none; } header input[type=range] { width:90px; } header input[type=number], #seed { width:64px; } #jumpto { width:64px; } }
+  @media (max-width: 1600px) { header .grp > label, header .brand, #jumpinfo { display:none; } header { gap:7px !important; padding:10px 10px !important; } .yearbox { min-width:84px; padding:4px 8px; } }
   header { grid-column:1 / 3; display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid var(--line); background:rgba(8,12,22,.85); }
   .brand { font-weight:800; letter-spacing:.12em; font-size:13px; color:var(--gold); }
   .yearbox { background:#141d30; border:1px solid var(--line); border-radius:8px; padding:4px 14px; min-width:120px; text-align:center; }
@@ -80,6 +81,15 @@
   .ctab { width:100%; font-size:12px; border-collapse:collapse; margin-top:8px; } .ctab td, .ctab th { padding:2px 6px; border-bottom:1px solid var(--line); text-align:left; }
   #editor { position:absolute; left:160px; bottom:12px; z-index:6; width:340px; background:rgba(10,14,26,.94); border:1px solid var(--line); border-radius:10px; padding:10px; font-size:12px; }
   #editor a { color:var(--gold); }
+  .bud label { min-width:110px; font-size:12px; } .bud input { flex:1; } .bud span { min-width:38px; text-align:right; font-size:12px; }
+  .opin { display:grid; grid-template-columns:110px 70px 1fr; gap:6px; align-items:center; font-size:12px; margin:2px 0; } .opin > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .obar { position:relative; height:6px; background:#1b2338; border-radius:3px; } .obar i { position:absolute; top:0; height:100%; border-radius:3px; } .opin .dim { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #commentary { position:absolute; left:50%; bottom:64px; transform:translateX(-50%); max-width:70%; background:rgba(8,12,22,.88); border-left:3px solid var(--gold); padding:8px 14px; border-radius:6px; font-size:14px; font-style:italic; opacity:0; transition:opacity .4s; pointer-events:none; z-index:5; }
+  #commentary.on { opacity:1; }
+  .gbar { height:6px; background:#1b2338; border-radius:3px; margin:5px 0; overflow:hidden; } .gbar i { display:block; height:100%; background:var(--gold); }
+  .score { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0; } .score div { background:#121a2c; border:1px solid var(--line); border-radius:8px; padding:8px; display:flex; flex-direction:column; } .score b { font-size:15px; } .score span { font-size:11px; opacity:.7; }
+  .report { background:#121a2c; border:1px solid var(--line); border-radius:8px; padding:6px 9px; margin:6px 0; font-size:12px; } .report .rrow { display:flex; flex-wrap:wrap; gap:4px 14px; }
+  #toast { position:fixed; left:50%; top:84px; transform:translate(-50%,-20px); opacity:0; pointer-events:none; transition:.25s; background:rgba(14,20,36,.97); border:1px solid var(--gold); border-radius:10px; padding:10px 14px; z-index:30; max-width:560px; font-size:13px; }
+  #toast.on { opacity:1; transform:translate(-50%,0); }
   .dlm { display:flex; flex-direction:column; gap:8px; }
   .dlm button { text-align:left; padding:10px 12px; display:flex; flex-direction:column; gap:3px; }
   .dlm button span { font-size:12px; opacity:.7; font-weight:normal; }
@@ -130,13 +140,14 @@
     <div class="yearbox"><small>YEAR</small><span id="year">1</span></div>
     <button id="play" class="primary">▶ Play</button>
     <button id="step">+1 year</button>
-    <div class="grp"><label>Speed</label><input id="speed" type="range" min="0" max="6" value="3"><span id="speedv">10 yr/s</span></div>
-    <div class="grp"><label>Run to</label><input id="jumpto" type="number" value="1500"><button id="jump">Go</button><span id="jumpinfo"></span></div>
+    <div class="grp"><label>Speed</label><input id="speed" type="range" min="0" max="6" value="3" title="Speed"><span id="speedv">10 yr/s</span></div>
+    <div class="grp"><label>Run to</label><input id="jumpto" type="number" value="1500" title="Run to this year"><button id="jump">Go</button><span id="jumpinfo"></span></div>
     <div style="flex:1"></div>
     <button id="b-open">Many worlds</button>
     <label class="grp" title="Plagues, eruptions and prophets at random dates and places instead of our timeline"><input type="checkbox" id="blind"> Blind</label>
     <div class="grp" title="Start in year 1, or on the real map of a later year"><label>Start</label><select id="scen"><option value="">year 1</option><option>1000</option><option>1500</option><option>1800</option><option>1914</option><option value="custom">custom world…</option></select></div>
-    <div class="grp"><label>Seed</label><input id="seed" type="number" value="1"><button id="newworld">New world</button></div>
+    <div class="grp"><label>Seed</label><input id="seed" type="number" value="1" title="Seed"><button id="newworld">New world</button></div>
+    <div class="grp"><button id="chalbtn" title="Ready-made goals with a deadline and a score">⚑ Challenges</button></div>
     <div class="grp"><button id="editbtn" title="Paint states, peoples, faiths and population; save or load a start">✎ Edit</button></div>
     <div class="grp"><button id="recbtn" title="Record the globe to a video file">● Record</button></div>
     <div class="grp"><button id="branch" title="Copy the world, change one thing, and run both side by side">What if…</button></div>
@@ -179,6 +190,7 @@
     <div id="pane2" class="pane"><canvas id="globe2"></canvas><canvas id="overlay2"></canvas><div class="panetag" id="tag2"></div></div>
     <div id="modes"></div>
     <div id="legend"></div>
+    <div id="commentary"></div>
     <div class="note">Drag to rotate · scroll to zoom · click land to inspect<br>Climate: Beck et al. 2018 Köppen-Geiger · relief: NOAA ETOPO1</div>
   </main>
   <aside>
@@ -200,12 +212,14 @@
       <div class="deaths"><span>Starved <b id="d-famine">0</b></span><span>Killed in war <b id="d-war">0</b></span><span>Plague <b id="d-plague">0</b></span></div>
     </div>
     <div class="card"><h3>LARGEST STATES</h3><div id="states"></div></div>
+    <div class="card"><h3>PREDICTIONS</h3><div id="predbox"></div></div>
     <div class="card" id="branchcard" style="display:none"><h3>WHAT IF</h3><div id="branchbody"></div></div>
     <div class="card">
       <h3>COUNCIL</h3>
       <div class="crow"><select id="c-mode"><option value="off">Off: pure simulation</option><option value="rules">Rule-based councils</option><option value="llm">AI councils (Ollama)</option></select>
       </div><div class="crow"><label>every</label><input id="c-every" type="number" min="5" value="25" class="sm"><label>years, for the</label><input id="c-size" type="number" min="1" max="12" value="5" class="sm"><label>largest states</label></div>
       <div class="crow llmonly"><input id="c-url" type="text" class="md" title="Ollama address" value="http://localhost:11434"><input id="c-model" type="text" class="md" title="Model name, e.g. qwen2.5:7b or qwen3:8b" value="qwen2.5:7b"><button id="c-test">Test</button></div>
+      <div class="crow llmonly"><label class="dim"><input type="checkbox" id="c-comm"> live commentary on big events (for videos)</label></div>
       <div id="c-status" class="hint"></div>
     </div>
     </div>

@@ -37,6 +37,17 @@ function lagAt(lon, lat, nw, Y, owned) {
   if (lat > 56) return 500;
   return Y >= 1900 && owned ? 150 : 700;   // Africa south of the Sahara
 }
+// the scientific and industrial inventions spread out of north-western Europe: extra lag for them elsewhere
+function modernLag(lon, lat, Y) {
+  const B = b => inBox(lon, lat, b);
+  if (B([-12, 46, 24, 62]) || B([-10, 37, 3.4, 46]) || B([6, 43.5, 14, 46]) || B([8, 41.9, 16.2, 43.5]) || B([8, 37.5, 18.6, 41.9])) return 0;   // western and central Europe, Iberia, Italy
+  if (B([-12, 35, 32, 62])) return 45;                      // the Balkans and eastern Europe
+  if (B([128, 30, 146, 46])) return Y >= 1900 ? 25 : 90;    // Japan (Meiji catch-up)
+  if (B([97, 18, 146, 50])) return Y >= 1900 ? 60 : 95;    // China, Korea, Vietnam
+  if (B([-18, 12, 62, 38])) return 70;                      // the Middle East and North Africa
+  if (B([60, 5, 98, 36])) return 90;                        // India
+  return 110;
+}
 // the main faith of a place at a date
 function faithAt(lon, lat, Y, nw) {
   const B = b => inBox(lon, lat, b);
@@ -101,7 +112,8 @@ export function installScenarios(World) {
     for (let i = 0; i < N; i++) {
       const lag = lagAt(this.lon[i], this.lat[i], this.nw[i], Y, this.owner[i] >= 0), bits = this.cellTech[i];
       if (lag >= 9999) continue;
-      for (let k = 0; k < TECHS.length; k++) { const t = TECHS[k]; if (t.ry <= Y - lag && t.id !== 'new_world_crops' && (t.pre || []).every(p => bits[T[p]] || TECHS[T[p]].ry <= Y - lag)) bits[k] = 1; }
+      const ml = this.nw[i] ? 40 : modernLag(this.lon[i], this.lat[i], Y), L = t => lag + (t.ry >= 1600 ? ml : 0);
+      for (let k = 0; k < TECHS.length; k++) { const t = TECHS[k]; if (t.ry <= Y - L(t) && t.id !== 'new_world_crops' && (t.pre || []).every(p => bits[T[p]] || TECHS[T[p]].ry <= Y - L(TECHS[T[p]]))) bits[k] = 1; }
     }
     // a state knows what its most advanced province knows (cells inherit their state's techs)
     sc.states.forEach((name, k) => { const p = this.polities[idOf[k]]; let best = null, bn = -1; for (const c of cellsOf[k]) { let n = 0; for (const v of this.cellTech[c]) n += v; if (n > bn) { bn = n; best = c; } } if (best !== null) { p.tech.set(this.cellTech[best]); p.fx = this._fxOf(p.tech); } });
