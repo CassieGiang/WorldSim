@@ -15,6 +15,7 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 - Provinces that stay mixed for generations can form a new people (e.g. Gotho-Latins), whose tongue comes from the majority.
 - Peoples under foreign rule rise up. Before printing these are revolts led by nobles; after printing, nationalism. Independent states take names from their people's own tradition (Đại Việt, Goryeo, Kartli…) or generated ones.
 - Generated cities are renamed when a new people takes over, and old names come back.
+- Learning survives: a state that takes a fallen state's capital takes over its half-finished inventions, and before the printing press research speeds up the longer the world has had paper (books pile up), so a slow medieval start no longer leaves a world centuries behind. This halved the spread of printing dates and ended the worlds that stayed pre-industrial.
 - Diasporas: merchants follow trade routes and settle in foreign cities, and refugees flee war to the cities theirs traded with. A community of another faith than its hosts keeps its identity for centuries; one of the same faith melts in within generations.
 
 **Economy and society**
@@ -115,7 +116,7 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 1. **Replay mode** (`node force.mjs <seed>`): every tech appears at its real date. Food and demography were tuned until world population follows the real curve: the replay gives 8.3 billion in 2026 against 8.2 real.
 2. **Tech costs** (`node costs.mjs`): each cost is the research the leading state produced between the date the tech became possible and its real date.
 3. **Many worlds** (`node batch.mjs 50 1 2026`): free-running worlds then scatter around real history. An early lead feeds on itself, so the spread is wide.
-   The only free knob is research speed (`RS`, default 1.10). It went 1.12 → 1.15 with the peoples layer (more breakaways), 1.15 → 1.08 with field armies (bigger conquests) and 1.08 → 1.10 with navies, treaties and bandits; 12-world medians are now printing 1402, factories 1761, contact 1451.
+   The only free knob is research speed (`RS`, default 1.14). It went 1.12 → 1.15 with the peoples layer (more breakaways), 1.15 → 1.08 with field armies (bigger conquests), 1.08 → 1.10 with navies, treaties and bandits, and 1.10 → 1.14 with the manuscript build-up (below); 12-world medians are now printing 1402, factories 1761, contact 1451.
 4. **Hold-out validation** (`node validate.mjs 12 1 0` normal, `node validate.mjs 12 1 1` blind): wars, cities, urban share, life expectancy, faiths, number of states and democracies are never tuned. They are compared with history in `reports/`. Currently 13 of 27 pass in normal mode and 10 of 21 in blind mode. The failures are the to-do list in `ROADMAP.md`.
 
 Only the population curve and the median tech dates are calibrated. Everything else is emergent or a fixed input (map, year-1 states, and in normal mode the dates of plagues, eruptions and prophets).

@@ -133,7 +133,7 @@ export function installDilemmas(World) {
   P._boost = function (p, label, fx, years) { (p.boosts = p.boosts || []).push({ label, fx, until: this.year + Math.max(1, Math.round(years)) }); };
   P._placeName = function (c) { const t = this.cities && this.cities.find(x => x.alive && x.cell === c); return t ? this.cityLabel(t) : `the lands of the ${this._tribeName(c)}`; };
   P._techName = function (k) { return this.constructor.TECHS ? this.constructor.TECHS[k].name : String(k); };
-  P._techCost = function (k) { return this.constructor.TECHS[k].cost * (this.techX ? this.techX[k] : 1); };
+  P._techCost = function (k) { return this.techCost(k); };
   // inventions this state could make next, closest first
   P._nextTechs = function (p) {
     const T = this.constructor.TECHS, out = [];

@@ -23,7 +23,7 @@ export const AMBITIONS = {
     label: 'First to an invention', years: 600,
     describe: (w, p, g) => `Be the first in the world to master ${TECHS[g.tech].name}.`,
     init: (w, p, g) => { const next = w._nextTechs(p).filter(k => !(TECHS[k].id in w.firstTech)); const pick = next.find(k => TECHS[k].ry > (w.year + 150)) ?? next[0] ?? T.printing; g.tech = pick; },
-    check: (w, p, g) => { const f = w.firstTech[TECHS[g.tech].id]; if (f) return f.by === p.name ? { done: true, progress: 1, text: 'invented here first' } : { fail: true, progress: 0, text: `${f.by} got there first` }; const pr = p.prog ? p.prog[g.tech] / (TECHS[g.tech].cost * (w.techX ? w.techX[g.tech] : 1)) : 0; return { progress: Math.max(0, Math.min(1, pr)), text: p.tech[g.tech] ? 'known' : w._prereqs(p.tech, g.tech) ? `${Math.round(pr * 100)}% of the way` : 'still missing what it needs' }; },
+    check: (w, p, g) => { const f = w.firstTech[TECHS[g.tech].id]; if (f) return f.by === p.name ? { done: true, progress: 1, text: 'invented here first' } : { fail: true, progress: 0, text: `${f.by} got there first` }; const pr = p.prog ? p.prog[g.tech] / w.techCost(g.tech) : 0; return { progress: Math.max(0, Math.min(1, pr)), text: p.tech[g.tech] ? 'known' : w._prereqs(p.tech, g.tech) ? `${Math.round(pr * 100)}% of the way` : 'still missing what it needs' }; },
   },
   survive: {
     label: 'Endure', years: 500,
@@ -72,7 +72,7 @@ function checkChallenge(w, p, g) {
   }
   if (G.kind === 'tech') {
     const k = T[G.tech], has = p && p.tech[k];
-    return { done: !!has, fail: past && !has, progress: has ? 1 : p && p.prog ? Math.max(0, Math.min(1, p.prog[k] / TECHS[k].cost)) : 0, text: has ? 'achieved' : `${TECHS[k].name}: not yet` };
+    return { done: !!has, fail: past && !has, progress: has ? 1 : p && p.prog ? Math.max(0, Math.min(1, p.prog[k] / w.techCost(k))) : 0, text: has ? 'achieved' : `${TECHS[k].name}: not yet` };
   }
   return { progress: 0, text: '' };
 }

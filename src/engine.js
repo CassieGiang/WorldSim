@@ -42,6 +42,8 @@ export function makeRng(seed) {
 
 const D2R = Math.PI / 180;
 const NT = TECHS.length;
+const BOOK_T0 = 400;
+const MANU = TECHS.map(t => t.ry > 105 && t.ry <= 1440 ? 1 + (t.ry - 105) / (2 * BOOK_T0) : 1);
 const T = TECH_INDEX;
 function inPoly(lon, lat, poly) {
   let ins = false;
@@ -565,8 +567,16 @@ export class World {
     for (let i = 0; i < this.N; i++) if (this.owner[i] === p.id && this.pop[i] > bp) { bp = this.pop[i]; best = i; }
     p.capital = best;
   }
+  // whoever takes a fallen state's capital takes over its scholars, books and half-finished inventions
+  // research needed for an invention; manuscript-age inventions cost more, to match the faster build-up of books
+  techCost(k) { return TECHS[k].cost * (this.opts.xNoBooks ? 1 : MANU[k]) * (this.techX ? this.techX[k] : 1); }
+  _inheritLearning(heir, p) {
+    if (!heir || heir === p || !heir.alive || !p.prog) return;
+    for (let k = 0; k < NT; k++) if (!heir.tech[k] && p.prog[k] * 0.8 > heir.prog[k]) heir.prog[k] = p.prog[k] * 0.8;
+  }
   _endPolity(p, how) {
     if (!p.alive) return;
+    if (p.capital >= 0 && this.owner[p.capital] >= 0 && this.owner[p.capital] !== p.id) this._inheritLearning(this.polities[this.owner[p.capital]], p);
     p.alive = false; p.ended = this.year;
     for (let i = 0; i < this.N; i++) if (this.owner[i] === p.id) { this.owner[i] = -1; }
     for (const w of this.wars) if (!w.end && (w.a === p.id || w.b === p.id)) this._endWar(w, 'ends with the fall of ' + p.name);
@@ -580,7 +590,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const U = p.urban / 1e6;
-      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.10) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (p.instFx ? p.instFx.research : 1) * (p.ideoFx ? p.ideoFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
+      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.14) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (p.instFx ? p.instFx.research : 1) * (p.ideoFx ? p.ideoFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
     }
     for (const p of this.polities) {
       if (!p.alive) continue;
@@ -600,15 +610,24 @@ export class World {
         if (this.contactYear === null && this.nw[Q.capital] !== this.nw[p.capital]) continue;
         spill += (Q.ownRp || 0) * (p.tech[T.printing] && Q.tech[T.printing] ? 0.5 : 0.25);
       }
-      const rp = p.ownRp + spill;
+      let rp = p.ownRp + spill;
+      // before the press, knowledge piles up in manuscripts: the longer the world has had paper, the more there is to build on
+      if (p.tech[T.paper] && !p.tech[T.printing] && !this.opts.xNoBooks) rp *= 1 + Math.min(4, Math.max(0, this.year - (this.firstTech.paper ? this.firstTech.paper.year : 105)) / BOOK_T0);
       p.rp += rp; p.rpRate = rp;
       if (this.opts.forceHistory) continue;
       // every possible tech advances at once; knowing a neighbour has it makes it 3x easier
       if (!p.prog) p.prog = new Float32Array(NT);
+      // ideas circulate among literate neighbours: half-worked-out inventions are shared slowly
+      const share = this.opts.ideaShare ?? 0;
+      if (share > 0 && p.tech[T.writing]) for (const q of p.neighbours) {
+        const Q = this.polities[q]; if (!Q.alive || !Q.tech[T.writing] || !Q.prog) continue;
+        if (this.contactYear === null && this.nw[Q.capital] !== this.nw[p.capital]) continue;
+        for (let k = 0; k < NT; k++) if (!p.tech[k] && Q.prog[k] > p.prog[k]) p.prog[k] += (Q.prog[k] - p.prog[k]) * share;
+      }
       for (let k = 0; k < NT; k++) {
         if (p.tech[k] || TECHS[k].noResearch || !this._prereqs(p.tech, k)) continue;
         p.prog[k] += rp * (nbTech[k] ? 3 : 1);
-        if (p.prog[k] >= TECHS[k].cost * (this.techX ? this.techX[k] : 1)) this._learn(p, k, 'invents');
+        if (p.prog[k] >= this.techCost(k)) this._learn(p, k, 'invents');
       }
     }
     if (this.opts.forceHistory) {
@@ -812,7 +831,7 @@ export class World {
     for (let i = 0; i < this.N; i++) if (this.owner[i] === B.id) this.owner[i] = A.id;
     this._endPolity(B, 'is conquered');
   }
-  _annexQuiet(A, B) { for (let i = 0; i < this.N; i++) if (this.owner[i] === B.id) this.owner[i] = A.id; B.alive = false; B.ended = this.year; for (const w of this.wars) if (!w.end && (w.a === B.id || w.b === B.id)) { w.end = this.year; if (this.warPairs) this._warEnded(w); } }
+  _annexQuiet(A, B) { for (let i = 0; i < this.N; i++) if (this.owner[i] === B.id) this.owner[i] = A.id; this._inheritLearning(A, B); B.alive = false; B.ended = this.year; for (const w of this.wars) if (!w.end && (w.a === B.id || w.b === B.id)) { w.end = this.year; if (this.warPairs) this._warEnded(w); } }
   _endWar(w, how) {
     if (w.end) return;
     w.end = this.year;
