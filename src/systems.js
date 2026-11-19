@@ -189,13 +189,14 @@ export function installSystems(World) {
       const trade = (p.blockaded ? 0.5 : 1) * (p.worksFx ? p.worksFx.trade : 1) * (p.tradeValue || 0) / maxTrade * 0.15 * Math.max(1, p.pop / 1e6) ** 0.5 * (p.fx.industry ? 4 : 1) + (p.tradeValue || 0) * 0;
       const gold = (goldCells.get(p.id) || 0) * 0.4 / this.K;
       const army = (p.soldiers || 0) / 1e6 * 13 * (p.fx.industry ? 2 : 1) * (p.policy && p.policy.focus === 'army' ? 1.3 : 1);
-      p.income = tax + trade + gold; p.spend = army; p.tradeIncome = trade;
+      p.income = (tax + trade + gold) * (p.boosts ? this._boostFx(p).money : 1); p.spend = army; p.tradeIncome = trade;
       p.treasury = (p.treasury || 0) * 0.97 + p.income - p.spend;
       if (p.treasury < -p.income * 3 && p.income > 0) { p.stability -= 0.02; p.broke = true; } else p.broke = false;
     }
   };
 
   // ---------------- religion ----------------
+  P._defaultProphets = () => PROPHETS.slice();
   P._religion = function (y) {
     const rng = this.rng, N = this.N;
     const prophets = this.sched && this.sched.prophets ? this.sched.prophets : PROPHETS;
@@ -209,7 +210,7 @@ export function installSystems(World) {
         if (!towns.length) continue;
         c = this.rng.pick(towns).cell;
         const parts = NAME_PARTS[this.culture[c]] || NAME_PARTS.latin, root = this.rng.pick(parts[0]) + (parts[1][0] || 'a');
-        pr.name = this.rng.next() < 0.5 ? root.charAt(0).toUpperCase() + root.slice(1) + 'ism' : `the Way of ${root.charAt(0).toUpperCase() + root.slice(1)}`;
+        if (!pr.name) pr.name = this.rng.next() < 0.5 ? root.charAt(0).toUpperCase() + root.slice(1) + 'ism' : `the Way of ${root.charAt(0).toUpperCase() + root.slice(1)}`;
       }
       const k = this._addFaith({ ...pr, universal: true }, y);
       this.rel[c] = k; this.relStr[c] = 0.3;

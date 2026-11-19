@@ -65,7 +65,24 @@ export class Globe {
       return { w: bmp.width, h: bmp.height, data: out };
     };
     g._init(await gray(shadeJpg, 'image/jpeg'), await gray(riversPng, 'image/png'));
+    g.earth = { idmap: g.idmap, shade: g._shade, rivers: g._rivers, N };
     return g;
+  }
+  // swap in another map (a custom world, or back to Earth)
+  setMap(idmap, shade, rivers, N) {
+    const gl = this.gl;
+    this.idmap = idmap; this.N = N; this.rows = Math.ceil(N / 128); this._shade = shade; this._rivers = rivers;
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tId);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, TW, TH, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, idmap);
+    this.ownData = new Uint16Array(128 * this.rows); this.colData = new Uint8Array(128 * this.rows * 4);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.tOwn);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, 128, this.rows, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, this.ownData);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.tCol);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 128, this.rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.colData);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.tShade);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, shade.w, shade.h, 0, gl.RED, gl.UNSIGNED_BYTE, shade.data);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.tRiv);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, rivers.w, rivers.h, 0, gl.RED, gl.UNSIGNED_BYTE, rivers.data);
   }
   constructor(glCanvas, overlay, N) {
     this.c = glCanvas; this.o = overlay; this.N = N;
@@ -77,7 +94,7 @@ export class Globe {
     this.rows = Math.ceil(N / 128);
   }
   _init(shade, rivers) {
-    const gl = this.gl;
+    const gl = this.gl; this._shade = shade; this._rivers = rivers;
     const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
     if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));

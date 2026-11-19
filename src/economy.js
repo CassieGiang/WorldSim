@@ -63,6 +63,10 @@ export function installEconomy(World) {
       CROPS.forEach((cr, k) => { if (this.suit[k][i] > 0.15 && HOMES[cr.id].some(b => inBox(c.lon, c.lat, b)) && (cr.world === 'both' || (cr.world === 'new') === !!this.nw[i])) this.crops[i] |= 1 << k; });
       this._cropFx(i);
     }
+    if (this.geo.custom) { this.crops.fill(0);   // each crop was first grown near one of the cradles, or wild far from them
+      CROPS.forEach((cr, k) => { const home = this.cradles[k % this.cradles.length]; for (let i = 0; i < N; i++) if (this.suit[k][i] > 0.15 && this.distDeg(i, home) < 18) this.crops[i] |= 1 << k; });
+      for (let i = 0; i < N; i++) this._cropFx(i);
+    }
     this.cropFirst = {};
     this.silver = 1; this.priceLevel = 1; this.priceHist = [];
     this.works = [];

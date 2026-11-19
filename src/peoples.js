@@ -31,6 +31,13 @@ export function installPeoples(World) {
 
   P._pplInit = function () {
     const N = this.N;
+    if (this.geo.custom) {   // peoples were made by _customPeoples
+      this.ppl = Uint16Array.from(this.custPpl); this.ppl2 = new Uint16Array(N).fill(NONE); this.mix = new Float32Array(N); this.mixAge = new Uint16Array(N);
+      for (let i = 0; i < N; i++) this.peoples[this.ppl[i]].cells0++;
+      for (const p of this.polities) if (p.capital >= 0) { const q = this.peoples[this.ppl[p.capital]]; q.hadState = true; p.people = q.id; }
+      this.usedStateNames = new Set(this.polities.map(p => p.name));
+      return;
+    }
     this.peoples = PEOPLES.peoples.map((q, id) => ({ ...q, id, color: hashColor(q.name), born: q.curated !== undefined ? 0 : this.year, parents: null, cells0: 0, cells: 0, pop: 0, ended: null, revolts: 0, statesUsed: 0, grievance: 0 }));
     this.langs = []; const li = new Map();
     for (const q of this.peoples) { const k = q.lang + '|' + q.branch; if (!li.has(k)) { li.set(k, this.langs.length); this.langs.push({ name: q.lang, branch: q.branch, family: q.family, color: hashColor('L' + q.lang) }); } q.li = li.get(k); }

@@ -63,6 +63,14 @@ export function installPolitics(World) {
     if (!p.ruler) return fx;
     for (const t of p.ruler.traits) { const e = TRAITS[t]; for (const k in e) if (k !== 'label') fx[k] = k === 'stab' ? fx[k] + e[k] : fx[k] * e[k]; }
     if (p.ruler.age < 16) { fx.stab -= 0.08; fx.aggr *= 0.6; }
+    if (p.boosts) { const b = this._boostFx(p); fx.stab += b.stab; fx.research *= b.research; fx.mil *= b.mil; fx.aggr *= b.aggr; }
+    return fx;
+  };
+  // lasting effects of the player's choices (dilemmas)
+  P._boostFx = function (p) {
+    const fx = { stab: 0, research: 1, mil: 1, aggr: 1, money: 1 };
+    if (!p.boosts) return fx;
+    for (const b of p.boosts) if (b.until >= this.year) for (const k in b.fx) fx[k] = k === 'stab' ? fx[k] + b.fx[k] : fx[k] * b.fx[k];
     return fx;
   };
   P._rulerTitle = function (p) {

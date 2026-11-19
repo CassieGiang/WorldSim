@@ -1,4 +1,6 @@
-import geo from './world2.json';
+import geoEarth from './world2.json';
+import { buildGeo } from './customworld.js';
+let geo = geoEarth;
 import idBin from './idmap4k.bin';
 import shadeJpg from './shade.jpg';
 import riversPng from './rivers.png';
@@ -9,6 +11,7 @@ import { TECHS, REAL_POP, TECH_INDEX as TECH_IDX } from './scenario.js';
 import { askCouncil, listModels, writeFamilyStory, writeChapter } from './council.js';
 import { FAMILY_TRAITS } from './families.js';
 import { WHATIFS } from './whatif.js';
+import { EVENT_KINDS } from './editor.js';
 import { flagSVG } from './flags.js';
 import { CROPS, CLASS_LABEL, INST_LABEL, WORK_ICONS } from './economy.js';
 import { IDEOS, NATION_POLICY } from './ideologies.js';
@@ -19,7 +22,7 @@ let world, playing = false, speed = 10, mode = 'political', selected = -1, needs
 let rot = [-60, -25], scale = 1;
 const store = { get: (k, d) => { try { const v = localStorage.getItem('worldsim.' + k); return v === null ? d : v; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem('worldsim.' + k, v); } catch {} } };
 const council = { mode: store.get('cmode', 'off'), every: +store.get('cevery', 25), size: +store.get('csize', 5), url: store.get('curl', 'http://localhost:11434'), model: store.get('cmodel', 'qwen2.5:7b'), busy: false, held: -1, errors: 0 };
-function worldOpts() { return { scenario: $('scen') && $('scen').value ? +$('scen').value : 0, blind: $('blind') && $('blind').checked, council: council.mode === 'rules' ? 'rules' : null, councilEvery: council.every, councilSize: council.size }; }
+function worldOpts() { return { scenario: $('scen') && +$('scen').value ? +$('scen').value : 0, blind: $('blind') && $('blind').checked, council: council.mode === 'rules' ? 'rules' : null, councilEvery: council.every, councilSize: council.size }; }
 const canvas = $('overlay');
 let globe = null, colorsDirty = true;
 const player = { id: -1, held: -1, busy: false, fallen: false, seats: [], active: -1 };
@@ -27,6 +30,7 @@ const player = { id: -1, held: -1, busy: false, fallen: false, seats: [], active
 function syncSeats() { const s = player.seats[player.active]; player.id = s ? s.id : -1; player.held = s ? s.held : -1; player.fallen = s ? s.fallen : false; world.playerId = player.id; world.playerIds = player.seats.map(x => x.id); }
 function useSeat(k) { player.active = k; syncSeats(); renderPlayer(); }
 let branch = null;   // what-if: { A, B, active: 'A' | 'B' }
+const ed = { on: false, painting: false, last: -1 };
 let globe2 = null, split = false, rec = null;
 const famUI = { picking: false, saved: (() => { try { return JSON.parse(store.get('families', '[]')); } catch { return []; } })(), builtin: store.get('builtinFam', '1') === '1' };
 const saveFamStore = () => store.set('families', JSON.stringify(famUI.saved));
@@ -35,6 +39,7 @@ function newWorld(seed) {
   if (typeof renderGovernor === 'function') setTimeout(renderGovernor, 0);
   branch = null; renderBranch();
   pplCache.clear(); langCache.clear();
+  World.resetTechNames();
   world = new World(geo, seed, worldOpts());
   council.held = -1; player.seats = []; player.active = -1; player.busy = false; syncSeats(); renderPlayer();
   selected = -1; lastEventCount = 0; $('log').innerHTML = ''; spin = null;
@@ -392,8 +397,9 @@ function focusCell(i) {
 
 // ---------- interaction ----------
 let drag = null;
-canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, lon: globe.view.lon, lat: globe.view.lat, moved: false }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerdown', e => { if (ed.on && !e.shiftKey && e.button === 0) { ed.painting = true; edPaintAt(e); canvas.setPointerCapture(e.pointerId); return; } drag = { x: e.clientX, y: e.clientY, lon: globe.view.lon, lat: globe.view.lat, moved: false }; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', e => {
+  if (ed.painting) { edPaintAt(e); return; }
   if (!drag) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
@@ -401,6 +407,7 @@ canvas.addEventListener('pointermove', e => {
   globe.view.lon = drag.lon - dx * k; globe.view.lat = Math.max(-85, Math.min(85, drag.lat + dy * k)); needsDraw = true;
 });
 canvas.addEventListener('pointerup', e => {
+  if (ed.painting) { ed.painting = false; ed.last = -1; updatePanels(); return; }
   if (drag && !drag.moved) {
     const r = canvas.getBoundingClientRect(), ll = globe.invert(e.clientX - r.left, e.clientY - r.top);
     const id = ll ? globe.idAt(ll[0], ll[1]) : 65535;
@@ -584,6 +591,26 @@ function openAddFamily(c) {
   };
 }
 // a guided family needs a decision: pause and ask
+// ---------- dilemmas: choices that come from what is happening in your state ----------
+function openDilemma() {
+  const d = world.dilemmaQ[0], p = world.polities[d.pol];
+  if (!p || !p.alive) { world.dilemmaQ.shift(); return; }
+  if (store.get('dilemmaAuto', '0') === '1') { world.resolveDilemma(d, d.options[0].key); appendEvents(); renderPlayer(); return; }
+  player.busy = true; if (playing) $('play').click();
+  const seat = player.seats.find(x => x.id === d.pol);
+  $('story-title').textContent = `${seat && player.seats.length > 1 ? seat.name + ': ' : ''}${d.title}, ${d.year}`;
+  $('story-body').innerHTML = `<div class="crow">${flagSVG(world, p, 36, 24)} <b>${esc(p.name)}</b><span class="dim">${world._rulerTitle(p)} · ${fmt(p.pop)} · stability ${Math.round(p.stability * 100)}% · treasury ${fmt(Math.max(0, p.treasury || 0))}</span></div>
+    <p style="font-size:15px;line-height:1.5">${esc(d.text)}</p>
+    <div class="dlm">${d.options.map(o => `<button data-k="${o.key}"><b>${esc(o.label)}</b><span>${esc(o.hint)}</span></button>`).join('')}</div>
+    <p class="dim" style="margin-top:8px"><label><input type="checkbox" id="dl-auto"> let my ministers decide from now on (switch back in the Play tab)</label></p>`;
+  $('story').classList.add('open'); $('story-close').style.display = 'none';
+  $('story-body').querySelectorAll('.dlm button').forEach(b => b.onclick = () => {
+    if ($('dl-auto').checked) store.set('dilemmaAuto', '1');
+    const out = world.resolveDilemma(d, b.dataset.k);
+    $('story-body').innerHTML = `<p style="font-size:15px">${esc(out)}</p><div class="crow"><button id="dl-ok" class="primary">Continue</button></div>`;
+    $('dl-ok').onclick = () => { $('story').classList.remove('open'); $('story-close').style.display = ''; player.busy = false; appendEvents(); renderPlayer(); updatePanels(); colorsDirty = true; needsDraw = true; };
+  });
+}
 function openFamilyPrompt() {
   const q = world.familyPrompts[0], f = world.families[q.fam];
   player.busy = true;
@@ -676,7 +703,11 @@ function renderPlayer() {
     <div class="crow"><select id="pa-peace">${pOpts(enemies, 'at peace')}</select><button class="xs" id="pa-peace-go">Offer peace</button></div>
     <div class="crow"><select id="pa-ally">${pOpts(allyC, 'nobody')}</select><button class="xs" id="pa-ally-go">Propose alliance</button>${al ? `<button class="xs" id="pa-leave">Leave ${al.name}</button>` : ''}</div>
     <div class="crow"><label class="dim">Toward our peoples</label><select id="pa-nat">${Object.entries(NATION_POLICY).map(([k, v]) => `<option value="${k}" ${p.nationPolicy === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-    <div class="crow"><button class="xs" id="pa-council">Hold council now</button><button class="xs" id="pa-stop">Stop playing</button><span id="pa-msg" class="dim"></span></div>`;
+    <div class="crow"><button class="xs" id="pa-council">Hold council now</button><button class="xs" id="pa-stop">Stop playing</button><span id="pa-msg" class="dim"></span></div>
+    <div class="crow"><label class="dim"><input type="checkbox" id="pa-dauto" ${store.get('dilemmaAuto', '0') === '1' ? 'checked' : ''}> ministers decide the dilemmas</label></div>
+    ${(() => { const bs = world.activeBoosts(p); return bs.length ? `<div class="isec">Lasting effects</div>${bs.map(b => `<div class="dim">${esc(b.label)} <span style="opacity:.7">until ${b.until}</span> · ${boostText(b.fx)}</div>`).join('')}` : ''; })()}
+    ${p.choices && p.choices.length ? `<div class="isec">Your recent choices</div>${p.choices.slice(-4).reverse().map(c => `<div class="dim"><b>${c.y}</b> ${esc(c.title)}: ${esc(c.choice)}</div>`).join('')}` : ''}`;
+  $('pa-dauto').onchange = () => store.set('dilemmaAuto', $('pa-dauto').checked ? '1' : '0');
   const P = () => world.polities[player.id], Q = id => world.polities[+id];
   const msg = t => { $('pa-msg').textContent = t; appendEvents(); colorsDirty = true; needsDraw = true; };
   $('pa-war-go').onclick = () => { const v = $('pa-war').value; if (v !== '') { world.playerDeclareWar(P(), Q(v)); msg('War declared.'); renderPlayer(); } };
@@ -686,6 +717,10 @@ function renderPlayer() {
   if ($('pa-leave')) $('pa-leave').onclick = () => { world.playerLeaveAlliance(P()); msg('You left the alliance.'); renderPlayer(); };
   $('pa-council').onclick = () => openPlayerCouncil();
   $('pa-stop').onclick = () => setPlayer(-1);
+}
+function boostText(fx) {
+  const L = { money: 'income', research: 'research', mil: 'army', aggr: 'war appetite', stab: 'stability' };
+  return Object.entries(fx).map(([k, v]) => k === 'stab' ? `${L[k]} ${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}/yr` : `${L[k]} ${v >= 1 ? '+' : ''}${Math.round((v - 1) * 100)}%`).join(', ');
 }
 function openPlayerCouncil() {
   const p = world.polities[player.id]; if (!p || !p.alive) return;
@@ -746,12 +781,12 @@ function frame(now) {
   const playerDue = () => { if (world.year % council.every) return false; const k = player.seats.findIndex(s => world.polities[s.id].alive && s.held !== world.year); if (k < 0) return false; if (k !== player.active) useSeat(k); return true; };
   if (council.busy || player.busy) { /* waiting for a council */ }
   else if (jumpTarget !== null) {
-    while (world.year < jumpTarget && performance.now() - t0 < 40) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
+    while (world.year < jumpTarget && performance.now() - t0 < 40) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (world.dilemmaQ && world.dilemmaQ.length && !player.busy) openDilemma(); if (player.busy) break; }
     $('jumpinfo').textContent = world.year < jumpTarget ? `running to ${jumpTarget}…` : '';
     if (world.year >= jumpTarget) jumpTarget = null;
   } else if (playing) {
     acc += dt * speed;
-    while (acc >= 1 && performance.now() - t0 < 30) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); acc -= 1; stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
+    while (acc >= 1 && performance.now() - t0 < 30) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); acc -= 1; stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (world.dilemmaQ && world.dilemmaQ.length && !player.busy) openDilemma(); if (player.busy) break; }
     if (acc > 3) acc = 0;
   }
   if (stepped) { appendEvents(); panelTimer += stepped; needsDraw = true; colorsDirty = true; if (panelTimer >= 1) { updatePanels(); panelTimer = 0; if (MODES[mode].legendFn && world.year % 10 === 0) renderLegend(); } }
@@ -1131,4 +1166,199 @@ document.querySelector('.tabs').onclick = e => { const b = e.target.closest('but
 
 $('playerbox').addEventListener('click', e => { const b = e.target.closest('[data-useseat]'); if (b) useSeat(+b.dataset.useseat); });
 
-$('scen').onchange = () => { newWorld(+$('seed').value || 1); $('jumpto').value = String(world.year + 100); };
+$('scen').onchange = () => {
+  if ($('scen').value === 'custom') { openCustomWorld(); return; }
+  if (geo !== geoEarth) setGeo(null);
+  newWorld(+$('seed').value || 1); $('jumpto').value = String(world.year + 100);
+};
+// ---------- custom worlds: your own heightmap, or a random planet ----------
+function setGeo(r) {
+  geo = r ? r.geo : geoEarth;
+  const m = r || { idmap: globe.earth.idmap, shade: globe.earth.shade, rivers: globe.earth.rivers };
+  globe.setMap(m.idmap, m.shade, m.rivers, geo.cells.length);
+  if (globe2) globe2.setMap(m.idmap, m.shade, m.rivers, geo.cells.length);
+  colBuf = null; colorsDirty = true; needsDraw = true;
+}
+// smooth 3D value noise, so a random planet has no seam
+function noiseWorld(seed, w = 1024, h = 512) {
+  const hash = (x, y, z) => { let n = (x * 374761393 + y * 668265263 + z * 1274126177 + seed * 974711) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+  const sm = t => t * t * (3 - 2 * t);
+  const vn = (x, y, z) => {
+    const X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z), fx = sm(x - X), fy = sm(y - Y), fz = sm(z - Z);
+    const l = (a, b, t) => a + (b - a) * t, c = (i, j, k) => hash(X + i, Y + j, Z + k);
+    return l(l(l(c(0, 0, 0), c(1, 0, 0), fx), l(c(0, 1, 0), c(1, 1, 0), fx), fy), l(l(c(0, 0, 1), c(1, 0, 1), fx), l(c(0, 1, 1), c(1, 1, 1), fx), fy), fz);
+  };
+  const img = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const la = (0.5 - (y + 0.5) / h) * Math.PI, cl = Math.cos(la), z = Math.sin(la);
+    for (let x = 0; x < w; x++) {
+      const lo = (x + 0.5) / w * 2 * Math.PI, px = cl * Math.cos(lo), py = cl * Math.sin(lo);
+      let v = 0, a = 0.5, f = 1.6, t = 0;
+      for (let o = 0; o < 7; o++) { v += a * vn(px * f + 11, py * f + 23, z * f + 37); t += a; a *= 0.5; f *= 2.1; }
+      img[y * w + x] = v / t;
+    }
+  }
+  return { img, w, h };
+}
+async function readImage(file, maxW) {
+  const bmp = await createImageBitmap(file), w = Math.min(maxW, bmp.width), h = Math.round(w / 2);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const cx = cv.getContext('2d', { willReadFrequently: true }); cx.drawImage(bmp, 0, 0, w, h);
+  return { data: cx.getImageData(0, 0, w, h).data, w, h };
+}
+function openCustomWorld() {
+  playing = false; $('play').textContent = '▶ Play';
+  $('story-title').textContent = 'A world of your own';
+  $('story-body').innerHTML = `<p>Draw or download a heightmap: a world map in grey, dark for low, light for high, twice as wide as it is tall. History then runs on it from year 1, with its own peoples, faiths and first farmers.</p>
+    <div class="crow"><label style="min-width:110px">Heightmap</label><input type="file" id="cw-h" accept="image/*"></div>
+    <div class="crow"><label style="min-width:110px">Climate (optional)</label><input type="file" id="cw-c" accept="image/*"></div>
+    <p class="dim">A climate map is painted in plain colours: blue sea, white ice, sandy yellow desert, green farmland and forest. Without one, climate comes from latitude, height and distance to the sea.</p>
+    <div class="crow"><label style="min-width:110px">Sea level</label><input type="range" id="cw-sea" min="0.2" max="0.8" step="0.01" value="0.5" style="flex:1"><span id="cw-seav">0.50</span></div>
+    <div class="crow"><button id="cw-build">Build from my map</button><button id="cw-rand">Random planet</button><button id="cw-cancel" class="xs">Back to Earth</button></div>
+    <p id="cw-msg" class="dim"></p>`;
+  $('story').classList.add('open');
+  $('cw-sea').oninput = () => $('cw-seav').textContent = (+$('cw-sea').value).toFixed(2);
+  const msg = t => $('cw-msg').textContent = t;
+  const go = async (height, hw, hh, climate) => {
+    $('cw-build').disabled = $('cw-rand').disabled = true;
+    try {
+      const r = await buildGeo({ height, hw, hh, climate: climate && climate.data, cw: climate && climate.w, ch: climate && climate.h, sea: +$('cw-sea').value, onProgress: msg });
+      if (r.geo.cells.length < 200) { msg('Hardly any land at that sea level. Lower the sea and try again.'); return; }
+      if (r.geo.cells.length > 60000) { msg('Almost no sea at that level. Raise it and try again.'); return; }
+      setGeo(r); newWorld(+$('seed').value || 1);
+      $('story').classList.remove('open'); $('jumpto').value = String(world.year + 100);
+    } catch (e) { msg('Could not build the world: ' + e.message); console.error(e); }
+    finally { if ($('cw-build')) $('cw-build').disabled = $('cw-rand').disabled = false; }
+  };
+  $('cw-build').onclick = async () => {
+    const f = $('cw-h').files[0]; if (!f) { msg('Pick a heightmap first.'); return; }
+    msg('Reading the image…');
+    const im = await readImage(f, 2048), hgt = new Float32Array(im.w * im.h);
+    for (let i = 0; i < hgt.length; i++) hgt[i] = (im.data[i * 4] * 0.3 + im.data[i * 4 + 1] * 0.59 + im.data[i * 4 + 2] * 0.11) / 255;
+    const c = $('cw-c').files[0] ? await readImage($('cw-c').files[0], 2048) : null;
+    go(hgt, im.w, im.h, c);
+  };
+  $('cw-rand').onclick = () => { msg('Raising mountains…'); setTimeout(() => { const n = noiseWorld(+$('seed').value || 1); if (+$('cw-sea').value === 0.5) { $('cw-sea').value = 0.53; $('cw-seav').textContent = '0.53'; } go(n.img, n.w, n.h, null); }, 20); };
+  $('cw-cancel').onclick = () => { $('story').classList.remove('open'); $('scen').value = ''; if (geo !== geoEarth) setGeo(null); newWorld(+$('seed').value || 1); };
+}
+
+
+// ---------- the editor: design your own start ----------
+function edFill() {
+  const tool = $('ed-tool').value, q = $('ed-find').value.trim().toLowerCase(), m = x => !q || x.toLowerCase().includes(q);
+  let opts = [];
+  if (tool === 'state') opts = [['new', '＋ a new state here…'], ['-1', '(no state: free land)'], ...world.polities.filter(p => p.alive && m(p.name)).sort((a, b) => a.name.localeCompare(b.name)).map(p => [p.id, p.name])];
+  else if (tool === 'people') opts = world.peoples.map((x, k) => [k, `${x.name} (${x.lang})`]).filter(([, n]) => m(n)).sort((a, b) => a[1].localeCompare(b[1])).slice(0, 400);
+  else if (tool === 'faith') opts = [['-1', '(none)'], ...world.faiths.map((f, k) => [k, f.name]).filter(([, n]) => m(n))];
+  else opts = [['2', 'double the people'], ['0.5', 'halve the people'], ['0', 'empty the land'], ['1', 'settle (at least a village)']];
+  const keep = $('ed-val').value;
+  $('ed-val').innerHTML = opts.map(([v, n]) => `<option value="${v}">${esc(n)}</option>`).join('');
+  if (opts.some(o => String(o[0]) === keep)) $('ed-val').value = keep;
+  const mm = { state: 'political', people: 'peoples', faith: 'religion', pop: 'density' }[tool];
+  if (mode !== mm) { const b = document.querySelector(`#modes button[data-mode=${mm}]`); if (b) b.click(); }
+}
+function edPaintAt(e) {
+  const r = canvas.getBoundingClientRect(), ll = globe.invert(e.clientX - r.left, e.clientY - r.top);
+  const id = ll ? globe.idAt(ll[0], ll[1]) : 65535; if (id >= world.N || id === ed.last) return;
+  ed.last = id;
+  const tool = $('ed-tool').value; let v = $('ed-val').value;
+  if (tool === 'state' && v === 'new') {
+    const name = prompt('Name of the new state (leave empty for a generated name):', '');
+    if (name === null) { ed.painting = false; return; }
+    const p = world.newStateAt(id, name.trim()); edFill(); $('ed-val').value = String(p.id); v = String(p.id);
+  }
+  world.paint(world.brushCells(id, +$('ed-brush').value), tool, tool === 'pop' ? +v : +v);
+  if (tool === 'people') pplCache.clear();
+  colorsDirty = true; needsDraw = true;
+}
+$('editbtn').onclick = () => { ed.on = !ed.on; $('editor').style.display = ed.on ? '' : 'none'; $('editbtn').classList.toggle('on', ed.on); if (ed.on) { if (playing) $('play').click(); edFill(); } };
+$('ed-done').onclick = () => $('editbtn').click();
+$('ed-tool').onchange = edFill; $('ed-find').oninput = edFill;
+// rules and events
+document.querySelectorAll('[data-edtab]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('[data-edtab]').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('[data-edpane]').forEach(x => x.style.display = x.dataset.edpane === b.dataset.edtab ? '' : 'none');
+  ed.tab = b.dataset.edtab; if (ed.tab === 'rules') ruFill(); if (ed.tab === 'events') evFill();
+});
+function ruItems() {
+  const k = $('ru-kind').value;
+  if (k === 'tech') return TECHS.map(t => [t.id, t.name]);
+  if (k === 'faith') return (world.faiths || []).map((f, i) => [i, f.name]).filter(([i]) => world.faiths[i].cells > 0 || world.faiths[i].founded <= world.year);
+  return world.peoples.map((q, i) => [i, q.name]).filter(([i]) => world.peoples[i].cells > 0).sort((a, b) => a[1].localeCompare(b[1]));
+}
+function ruFill() {
+  const keep = $('ru-item').value;
+  $('ru-item').innerHTML = ruItems().map(([v, n]) => `<option value="${v}">${esc(n)}</option>`).join('');
+  if ([...$('ru-item').options].some(o => o.value === keep)) $('ru-item').value = keep;
+  ruShow();
+}
+function ruShow() {
+  const k = $('ru-kind').value, v = $('ru-item').value, m = world.mods || { techs: {} };
+  if (k === 'tech') {
+    const t = TECHS[TECH_IDX[v]], mt = m.techs[v] || {}, x = mt.costX ?? 1;
+    $('ru-name').value = t.name;
+    $('ru-row1').innerHTML = `<label style="min-width:44px">Effort</label><input type="range" id="ru-cost" min="-2" max="2" step="0.1" value="${Math.log2(x)}" style="flex:1"><span id="ru-costv">×${x.toFixed(2)}</span>`;
+    $('ru-row2').innerHTML = `<label><input type="checkbox" id="ru-ban" ${mt.banned ? 'checked' : ''}> never invented in this world</label>`;
+    $('ru-hint').textContent = `Needs: ${(t.pre || []).map(p => TECHS[TECH_IDX[p]].name).join(', ') || 'nothing'}. In our world: ${t.ry < 0 ? -t.ry + ' BC' : t.ry}.`;
+    $('ru-cost').oninput = () => { const x2 = Math.pow(2, +$('ru-cost').value); $('ru-costv').textContent = '×' + x2.toFixed(2); world.setTech(v, { costX: x2 }); };
+    $('ru-ban').onchange = () => world.setTech(v, { banned: $('ru-ban').checked });
+  } else if (k === 'faith') {
+    const f = world.faiths[+v];
+    $('ru-name').value = f.name;
+    $('ru-row1').innerHTML = `<label style="min-width:44px">Zeal</label><input type="range" id="ru-miss" min="0" max="1.2" step="0.05" value="${f.miss}" style="flex:1"><span id="ru-missv">${(+f.miss).toFixed(2)}</span>`;
+    $('ru-row2').innerHTML = `<label>Colour <input type="color" id="ru-col" value="${toHex(f.color)}"></label>`;
+    $('ru-hint').textContent = `${f.pop ? fmt(f.pop) + ' believers. ' : ''}Zeal above 0.3 makes a faith seek converts beyond its own people.`;
+    $('ru-miss').oninput = () => { $('ru-missv').textContent = (+$('ru-miss').value).toFixed(2); world.setFaith(+v, { miss: +$('ru-miss').value }); };
+    $('ru-col').oninput = () => { world.setFaith(+v, { color: $('ru-col').value }); colorsDirty = true; needsDraw = true; };
+  } else {
+    const q = world.peoples[+v];
+    $('ru-name').value = q.name;
+    $('ru-row1').innerHTML = `<label style="min-width:44px">Identity</label><input type="range" id="ru-id" min="0" max="1" step="0.05" value="${q.identity ?? 0.5}" style="flex:1"><span id="ru-idv">${(q.identity ?? 0.5).toFixed(2)}</span>`;
+    $('ru-row2').innerHTML = '';
+    $('ru-hint').textContent = `${fmt(q.pop || 0)} people, ${q.lang} (${q.family}). Strong identity resists assimilation and rises against foreign rule.`;
+    $('ru-id').oninput = () => { $('ru-idv').textContent = (+$('ru-id').value).toFixed(2); world.setPeople(+v, { identity: +$('ru-id').value }); };
+  }
+}
+function toHex(c) { const cv = document.createElement('canvas').getContext('2d'); cv.fillStyle = c; return cv.fillStyle.startsWith('#') ? cv.fillStyle : '#888888'; }
+$('ru-kind').onchange = ruFill; $('ru-item').onchange = ruShow;
+$('ru-name').onchange = () => {
+  const k = $('ru-kind').value, v = $('ru-item').value, n = $('ru-name').value.trim();
+  if (k === 'tech') world.setTech(v, { name: n }); else if (!n) return; else if (k === 'faith') world.setFaith(+v, { name: n }); else { world.setPeople(+v, { name: n }); pplCache.clear(); }
+  ruFill(); updatePanels(); if (MODES[mode].legendFn) renderLegend();
+};
+$('ev-kind').innerHTML = Object.entries(EVENT_KINDS).map(([k, e]) => `<option value="${k}">${e.label}</option>`).join('');
+const EV_DEF = { plague: [0, 0.5, 0.15], eruption: [0.02, 0.25, 0.1], quake: [0.005, 0.15, 0.04], prophet: [0.1, 1.2, 0.6] };
+function evKind() {
+  const k = $('ev-kind').value, [lo, hi, d] = EV_DEF[k];
+  $('ev-str').min = lo; $('ev-str').max = hi; $('ev-str').step = (hi - lo) / 100; $('ev-str').value = d;
+  $('ev-slabel').textContent = { plague: 'Deadliness', eruption: 'Harvest loss', quake: 'Deaths', prophet: 'Zeal' }[k]; $('ev-slabel').title = EVENT_KINDS[k].strength; $('ev-cqw').style.display = k === 'prophet' ? '' : 'none'; evStr();
+}
+function evStr() { const k = $('ev-kind').value, v = +$('ev-str').value; $('ev-strv').textContent = k === 'prophet' ? v.toFixed(2) : Math.round(v * 100) + '%'; }
+function evFill() {
+  if (!$('ev-year').value || +$('ev-year').value <= world.year) $('ev-year').value = world.year + 20;
+  const evs = (world.mods ? world.mods.events : []).filter(e => e.year > world.year);
+  $('ev-list').innerHTML = evs.length ? evs.map(e => `<div>${e.year}: ${EVENT_KINDS[e.kind].label}${e.name ? ' "' + esc(e.name) + '"' : ''}${e.cell >= 0 ? ' in ' + esc(world._where(e.cell)) : ''} <a href="#" data-rm="${e.id}">remove</a></div>`).join('') : 'No events of your own yet. Events you add here happen on top of the usual ones.';
+  $('ev-list').querySelectorAll('[data-rm]').forEach(a => a.onclick = ev => { ev.preventDefault(); world.removeEvent(+a.dataset.rm); evFill(); });
+}
+$('ev-kind').onchange = evKind; $('ev-str').oninput = evStr; evKind();
+$('ev-add').onclick = () => {
+  const y = Math.round(+$('ev-year').value);
+  if (!(y > world.year)) { $('ev-list').insertAdjacentHTML('afterbegin', '<div>The year must be in the future.</div>'); return; }
+  const here = $('ev-here').checked && selected >= 0 ? selected : -1;
+  world.addEvent({ kind: $('ev-kind').value, year: y, name: $('ev-name').value.trim() || undefined, strength: +$('ev-str').value, cell: here, conquest: $('ev-cq').checked });
+  $('ev-name').value = ''; evFill();
+};
+$('ed-save').onclick = () => { const t = prompt('A title for this scenario:', `My world, ${world.year}`); if (t === null) return; download(`worldsim_scenario_${t.replace(/[^\w]+/g, '_')}.json`, JSON.stringify(world.exportStart(t)), 'application/json'); };
+$('ed-load').onclick = () => $('ed-file').click();
+$('ed-file').onchange = async () => {
+  const f = $('ed-file').files[0]; if (!f) return;
+  try {
+    const s = JSON.parse(await f.text());
+    $('scen').value = s.base > 1 && [1000, 1500, 1800, 1914].includes(s.base) ? String(s.base) : '';
+    if ($('blind')) $('blind').checked = !!s.blind;
+    newWorld(s.seed || 1);
+    world.importStart(s); pplCache.clear(); langCache.clear();
+    rebuildLog(); colorsDirty = true; needsDraw = true; updatePanels(); edFill();
+  } catch (err) { alert('Could not load that file: ' + err.message); }
+  $('ed-file').value = '';
+};

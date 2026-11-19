@@ -16,6 +16,9 @@ import { installWarfare2 } from './warfare2.js';
 import { installGovernor } from './governor.js';
 import { installEnvironment } from './environment.js';
 import { installScenarios } from './scenarios.js';
+import { installEditor } from './editor.js';
+import { installCustom } from './customworld.js';
+import { installDilemmas } from './dilemmas.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -111,7 +114,7 @@ export class World {
       this.pastureY[i] = landF > 0 ? (1.0 * f[1] + 0.55 * f[2] + 1.8 * f[3] + 1.4 * f[4] + 0.12 * f[5]) / landF : 0;
       this.coastal[i] = c.sea > 0 || f[0] > 0.15 ? 1 : 0;
       this.fishK[i] = this.coastal[i] ? 90000 / this.K * (c.sea + 5 * f[0]) * (0.6 + Math.abs(c.lat) / 80) : 0;
-      this.nw[i] = NEW_WORLD_BOXES.some(b => inBox(c.lon, c.lat, b)) ? 1 : 0;
+      this.nw[i] = !geo.custom && NEW_WORLD_BOXES.some(b => inBox(c.lon, c.lat, b)) ? 1 : 0;
       const z = CULTURE_ZONES.find(([, b]) => inBox(c.lon, c.lat, b));
       this.culture[i] = z ? z[0] : 'default';
       this.block[i] = Math.floor((c.lon + 180) / 10) + 36 * Math.floor((c.lat + 90) / 10);
@@ -135,11 +138,12 @@ export class World {
     this.totals = { famine: 0, war: 0, plague: 0, disaster: 0 };
     // historic city sites -> province
     this.siteAt = new Int32Array(N).fill(-1);
-    CITY_SITES.forEach((st, k) => { const c = this._nearest(st[1], st[2]); if (c >= 0 && this._dist2(c, st[1], st[2]) < 1.6) this.siteAt[c] = k; });
+    if (!geo.custom) CITY_SITES.forEach((st, k) => { const c = this._nearest(st[1], st[2]); if (c >= 0 && this._dist2(c, st[1], st[2]) < 1.6) this.siteAt[c] = k; });
     this.cities = []; this.cityAt = new Int32Array(N).fill(-1);
-    this.sched = opts.blind ? this._blindSchedule(seed) : { epidemics: EPIDEMICS, volcanoes: VOLCANOES, quakes: QUAKES, eras: CLIMATE_ERAS, prophets: null };
-    this._setup();
+    this.sched = opts.blind || geo.custom ? this._blindSchedule(seed) : { epidemics: EPIDEMICS, volcanoes: VOLCANOES, quakes: QUAKES, eras: CLIMATE_ERAS, prophets: null };
+    if (geo.custom) this._customSetup(); else this._setup();
     this._sysInit();
+    if (geo.custom) this._customFaiths();
     this._polInit();
     this._pplInit();
     this._ecoInit();
@@ -147,7 +151,7 @@ export class World {
     this._ideoInit();
     this._famInit();
     this._aggregate();
-    if (opts.scenario) this._scenarioStart(+opts.scenario);
+    if (opts.scenario && !geo.custom) this._scenarioStart(+opts.scenario);
     this._initTowns();
   }
 
@@ -429,6 +433,7 @@ export class World {
     warD += this._warfare(y);
     this._warfare2(y);
     if (this.governor) this._governorYear(y);
+    this._dilemmas();
     this._expansion(y);
     this._contact(y);
     this._famineLog(y);
@@ -487,6 +492,7 @@ export class World {
           let m = e.mort * (0.35 + 0.65 * Math.min(1, Math.sqrt(dens / 15))) * fx.plague * (e.pox || !this.immune ? 1 : 1 - 0.2 * this.immune[c]);
           if (e.pox) m *= fx.pox * (this.nw[c] ? 1 : 0.15);
           m = Math.min(0.8, m * (0.8 + 0.4 * rng.next()));
+          if (this.owner[c] >= 0) { const P0 = this.polities[this.owner[c]]; if (P0.quarantine >= this.year) m *= 0.35; else if (P0.plagueWorse >= this.year) m *= 1.3; }
           const d = this.pop[c] * m;
           this.pop[c] -= d; e.deaths += d; total += d; this.plagueHit[c] += m;
           if (this.owner[c] >= 0) this.polities[this.owner[c]].plagueDeaths += d;
@@ -592,7 +598,7 @@ export class World {
       for (let k = 0; k < NT; k++) {
         if (p.tech[k] || TECHS[k].noResearch || !this._prereqs(p.tech, k)) continue;
         p.prog[k] += rp * (nbTech[k] ? 3 : 1);
-        if (p.prog[k] >= TECHS[k].cost) this._learn(p, k, 'invents');
+        if (p.prog[k] >= TECHS[k].cost * (this.techX ? this.techX[k] : 1)) this._learn(p, k, 'invents');
       }
     }
     if (this.opts.forceHistory) {
@@ -627,6 +633,7 @@ export class World {
     return opts[opts.length - 1];
   }
   _learn(p, k, how) {
+    if (this.techBan && this.techBan[k]) return;
     p.tech[k] = 1; p.fx = this._fxOf(p.tech);
     const t = TECHS[k];
     if (!(t.id in this.firstTech)) {
@@ -1121,4 +1128,8 @@ installWarfare2(World);
 installGovernor(World);
 installEnvironment(World);
 installScenarios(World);
+installEditor(World);
+installCustom(World);
+installDilemmas(World);
+World.TECHS = TECHS;
 World.prototype._rngFactory = makeRng;
