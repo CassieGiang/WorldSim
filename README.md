@@ -159,7 +159,9 @@ Only the population curve and the median tech dates are calibrated. Everything e
 
 ```
 npm i puppeteer            # once: a browser to film in (or puppeteer-core with CHROME=path)
-npm i kokoro-js            # optional, once: Kokoro voice (downloads an 80 MB model on first use)
+npm i kokoro-js            # Kokoro voice, option 1 (downloads its model from Hugging Face on first use)
+pip install kokoro-onnx soundfile   # Kokoro voice, option 2: put kokoro-v1.0.onnx (or .int8.onnx) and voices-v1.0.bin
+                                    # from github.com/thewh1teagle/kokoro-onnx/releases (model-files-v1.0) in video/models/
 node video/make.mjs --seed 7 --minutes 5 --model qwen2.5:7b
 ```
 
@@ -167,10 +169,10 @@ What it does:
 1. Runs the world in the page once and reads the chronicle.
 2. Picks the story beats (new faiths, falls and break-ups of empires, key inventions, the two halves of the world meeting, the deadliest wars and plagues), about one every 24 seconds.
 3. Writes the narration with your local Ollama model; without one it uses plain sentences from the chronicle.
-4. Voices it with Kokoro (`--kokoro-voice bm_george`), falling back to espeak-ng, or silent with subtitles (`--voice none`).
+4. Voices it with Kokoro (`--kokoro-voice bm_george`; others include bm_lewis, bm_daniel, bf_emma, bf_isabella, af_heart), through kokoro-js or kokoro-onnx, whichever is installed. Without Kokoro it falls back to espeak-ng, which sounds robotic, or makes a silent video with subtitles (`--voice none`). The narration is normalised to -16 LUFS.
 5. Films each scene in the page: a time-lapse from the previous beat while the camera flies to the next, then the event's caption. Scenes are encoded one by one (rerunning skips finished scenes; `--refilm` redoes them), joined without re-encoding, and the narration is laid over them.
 
-Everything lands in `video/out/seed7/`. To change the words, edit `script.json` there and run `node video/make.mjs --script video/out/seed7/script.json --refilm`. Useful flags: `--plan-only` (stop after the script), `--stills` (a few full-size frames to check the look), `--blind`, `--scenario 1800`, `--to 1500`, `--width 1080 --height 1920` (vertical), `--title "…"`, `--ollama http://host:11434`, `--no-llm`.
+Everything lands in `video/out/seed7/`. To change the words, edit `script.json` there and run `node video/make.mjs --script video/out/seed7/script.json --refilm`. To change only the voice (another Kokoro voice, or after installing Kokoro), run `--script … --revoice`: the filmed scenes are kept and each clip is fitted to its scene. Useful flags: `--plan-only` (stop after the script), `--stills` (a few full-size frames to check the look), `--blind`, `--scenario 1800`, `--to 1500`, `--width 1080 --height 1920` (vertical), `--title "…"`, `--ollama http://host:11434`, `--no-llm`.
 
 Filming draws every frame on the graphics card; with software rendering it runs at about 5 frames a second.
 

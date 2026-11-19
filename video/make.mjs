@@ -155,23 +155,44 @@ function plain(b) {
 
 // ---------------- 4. the voice ----------------
 let kokoro = null;
+const MODELS = process.env.KOKORO_DIR || path.join(HERE, 'models');
+const kokoroFiles = () => { const m = ['kokoro-v1.0.onnx', 'kokoro-v1.0.int8.onnx'].map(f => path.join(MODELS, f)).find(f => fs.existsSync(f)), v = path.join(MODELS, 'voices-v1.0.bin'); return m && fs.existsSync(v) ? [m, v] : null; };
+const PY = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 async function voiceEngine() {
   if (opt.voice === 'none') return 'none';
-  if (opt.voice === 'auto' || opt.voice === 'kokoro') {
+  if (['auto', 'kokoro', 'kokoro-js'].includes(opt.voice)) {
     try {
       const { KokoroTTS } = await import('kokoro-js');
       kokoro = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', { dtype: 'q8', device: 'cpu' });
       return 'kokoro';
-    } catch (e) { if (opt.voice === 'kokoro') throw e; log('Kokoro not available (' + e.message.split('\n')[0] + ')'); }
+    } catch (e) { if (opt.voice === 'kokoro-js') throw e; log('kokoro-js not available (' + e.message.split('\n')[0] + ')'); }
+  }
+  if (['auto', 'kokoro', 'kokoro-py'].includes(opt.voice)) {
+    if (kokoroFiles() && spawnSync(PY, ['-c', 'import kokoro_onnx, soundfile']).status === 0) return 'kokoro-py';
+    if (opt.voice !== 'auto') throw new Error('kokoro-onnx not available: pip install kokoro-onnx soundfile, and put kokoro-v1.0.onnx and voices-v1.0.bin in ' + MODELS);
+    log('kokoro-onnx not available (pip install kokoro-onnx soundfile; model files in ' + MODELS + ')');
   }
   if (spawnSync('espeak-ng', ['--version']).status === 0) return 'espeak';
   if (spawnSync('espeak', ['--version']).status === 0) return 'espeak1';
   return 'none';
 }
+// all clips at once (the Python voice loads its model only once); speeds: one per clip
+async function speakAll(engine, texts, files, speeds) {
+  if (engine === 'kokoro-py') {
+    const [m, v] = kokoroFiles(), lang = opt.kvoice.startsWith('b') ? 'en-gb' : 'en-us';
+    const jobs = texts.map((t, k) => ({ text: t, out: files[k], voice: opt.kvoice, speed: speeds[k], lang }));
+    const r = spawnSync(PY, [path.join(HERE, 'kokoro_tts.py'), m, v], { input: JSON.stringify(jobs), maxBuffer: 1 << 26 });
+    if (r.status) throw new Error('kokoro-onnx failed: ' + String(r.stderr).slice(-400));
+    return files.map(duration);
+  }
+  const out = [];
+  for (const [k, t] of texts.entries()) out.push(await speak(engine, t, files[k], speeds[k]));
+  return out;
+}
 function duration(file) { const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]); return +String(r.stdout).trim() || 0; }
-async function speak(engine, text, file) {
-  if (engine === 'kokoro') { const a = await kokoro.generate(text, { voice: opt.kvoice }); await a.save(file); }
-  else if (engine === 'espeak' || engine === 'espeak1') { const r = spawnSync(engine === 'espeak' ? 'espeak-ng' : 'espeak', ['-v', opt.espeakVoice, '-s', '150', '-w', file, text]); if (r.status) throw new Error('espeak failed'); }
+async function speak(engine, text, file, speed = 1) {
+  if (engine === 'kokoro') { const a = await kokoro.generate(text, { voice: opt.kvoice, speed }); await a.save(file); }
+  else if (engine === 'espeak' || engine === 'espeak1') { const r = spawnSync(engine === 'espeak' ? 'espeak-ng' : 'espeak', ['-v', opt.espeakVoice, '-s', String(Math.round(150 * speed)), '-w', file, text]); if (r.status) throw new Error('espeak failed'); }
   else return Math.max(4, text.split(/\s+/).length / 2.5);   // silent: as long as it takes to read
   return duration(file);
 }
@@ -244,19 +265,26 @@ if (A.stills) {
   await b.close(); process.exit(0);
 }
 
-// voices first: each scene lasts as long as its narration
+// voices first: each scene lasts as long as its narration (or, with --revoice, the narration is fitted to the filmed scenes)
 const engine = await voiceEngine();
-log(`voice: ${engine}${engine === 'kokoro' ? ' (' + opt.kvoice + ')' : ''}`);
+log(`voice: ${engine}${engine.startsWith('kokoro') ? ' (' + opt.kvoice + ')' : ''}`);
+const sceneFile = k => path.join(OUT, 'scenes', `s${String(k).padStart(2, '0')}.mp4`);
+const revoice = !!A.revoice && script.scenes.every((_, k) => fs.existsSync(sceneFile(k)));
+const vfiles = script.scenes.map((_, k) => path.join(OUT, 'voice', `v${String(k).padStart(2, '0')}.wav`));
+const texts = script.scenes.map(sc => sc.text);
+let lens = await speakAll(engine, texts, vfiles, texts.map(() => 1));
 const durs = [];
-for (const [k, sc] of script.scenes.entries()) {
-  const f = path.join(OUT, 'voice', `v${String(k).padStart(2, '0')}.wav`);
-  const len = await speak(engine, sc.text, f);
-  sc.voice = engine === 'none' ? null : f; sc.voiceLen = len;
-  durs.push(Math.max(sc.kind === 'title' ? 7 : 5, len + 1.4));
-}
+if (revoice) {
+  // keep the pictures: a clip that is too long for its scene is spoken a little faster
+  const have = script.scenes.map((_, k) => duration(sceneFile(k)));
+  const speeds = lens.map((l, k) => l > have[k] - 0.8 ? Math.min(1.3, l / (have[k] - 0.8)) : 1);
+  if (speeds.some(x => x > 1)) { const redo = speeds.map((x, k) => x > 1 ? k : -1).filter(k => k >= 0); const l2 = await speakAll(engine, redo.map(k => texts[k]), redo.map(k => vfiles[k]), redo.map(k => speeds[k])); redo.forEach((k, i) => { lens[k] = l2[i]; }); }
+  durs.push(...have);
+  log('revoicing the filmed scenes; the pictures are kept');
+} else lens.forEach((len, k) => durs.push(Math.max(script.scenes[k].kind === 'title' ? 7 : 5, len + 1.4)));
+script.scenes.forEach((sc, k) => { sc.voice = engine === 'none' ? null : vfiles[k]; sc.voiceLen = lens[k]; });
 // film
-await setup(pg);
-for (const [k, sc] of script.scenes.entries()) await filmScene(pg, sc, k ? script.scenes[k - 1] : null, k, durs[k]);
+if (!revoice) { await setup(pg); for (const [k, sc] of script.scenes.entries()) await filmScene(pg, sc, k ? script.scenes[k - 1] : null, k, durs[k]); }
 await b.close();
 // join the scenes (same size, rate and encoder, so no re-encoding)
 const list = path.join(OUT, 'scenes.txt');
@@ -272,7 +300,7 @@ if (engine !== 'none') {
   const ins = [], filt = [];
   let off = 0;
   script.scenes.forEach((sc, k) => { ins.push('-i', sc.voice); const ms = Math.round((off + 0.4) * 1000); filt.push(`[${k + 1}:a]aresample=48000,aformat=channel_layouts=mono,adelay=${ms}|${ms}[a${k}]`); off += durs[k]; });
-  const mix = `${filt.join(';')};${script.scenes.map((_, k) => `[a${k}]`).join('')}amix=inputs=${script.scenes.length}:normalize=0,apad[aout]`;
+  const mix = `${filt.join(';')};${script.scenes.map((_, k) => `[a${k}]`).join('')}amix=inputs=${script.scenes.length}:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,apad[aout]`;
   const tmp = final.replace(/\.mp4$/, '.part.mp4');
   await ffmpeg(['-i', silent, ...ins, '-filter_complex', mix, '-map', '0:v', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest', tmp]);
   fs.renameSync(tmp, final);
