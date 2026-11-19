@@ -208,6 +208,20 @@ Their shares change with land, trade, tech and law. Inequality is tracked.
 - **Hot-seat multiplayer:** several players each take a state in the same world and take turns at council years.
 - **Scenario and mod editor** in the page: edit techs, faiths, peoples, ideologies, events and start conditions; save and share them as files.
 
+## Stage H: gameplay (after stage G) *(added 19 Nov: "the gameplay is still lacklustre")*
+
+Why it feels flat now: the player mostly watches. Choices are rare and coarse, results are hard to see, there is nothing to aim for or lose, and rivals don't react to you. Stage H adds frequent choices with costs, visible results, goals and opponents.
+
+1. **Dilemmas from the simulation** *(first)*: every few years the real state of your country produces an event card with 2–4 choices and visible trade-offs. Examples: famine (open the granaries / seize grain from the nobles / do nothing), plague by ship (close the ports / keep trading), an inventor seeks patronage, a heretic preacher draws crowds, a child heir and an ambitious general, a neighbour's envoy offers marriage or demands tribute, an over-mighty governor. Effects are fixed by the rules; the local AI may write the flavour text.
+2. **Hands on the controls:** budget sliders (army, research, buildings, court, taxes) with effects within a few years; orders on the map ("march on this province", "defend here", "build a road/wall/canal here", "settle this frontier"), so your army is something you steer; edicts with lasting effects and upkeep (conscription, religious tolerance, census, state monopoly).
+3. **A dynasty you care about:** you play the ruling house. Ruler and heir have traits; choose marriages, educate the heir, handle ambitious relatives. Losing the throne is not game over: play on as a cadet branch or in exile and try to win it back.
+4. **Goals, challenges and scores:** ambitions chosen at the start (unify your people, first to printing, survive to 2026, outlast Rome); ready-made challenges ("Đại Việt: independence from the Han before 1000", "The last Romans: hold Constantinople past 1453" from the 1000 start, "Survive the Mongols", "Industrialise before Britain" from 1800); an end card scoring you against real history; achievements; a daily seed.
+5. **Rivals with personalities:** AI rulers remember what you did to them; envoys bring offers, threats and ultimatums that you answer; the AI council can write their letters in each ruler's voice.
+6. **Pacing:** time slows near you and pauses on events that concern you; a short "since your last decision" report (what changed, what threatens, what's possible now); optional turn mode (1, 5 or 10 years a turn, act before it ends).
+7. **For videos and spectators:** predictions before a run ("who will be largest in 1500?") scored at the end; live AI commentary at turning points.
+
+Suggested first package: 1, 2 (budget and army orders), 4 and 6 together, so play becomes "decide, see the result, react", with a goal at the end.
+
 ## Map & presentation (alongside the stages)
 
 - 4K province map, rivers, coastlines from 1 km data (in progress)
@@ -248,6 +262,7 @@ Stages A–D add their own hold-outs: the number of independent peoples, languag
 | E: everything else, ongoing | — | — |
 | F: stories, what-ifs, videos | 2–3 sessions | any time after stage 0; the history book and branching get richer as stages land |
 | G: worlds, scenarios, play | 2–3 sessions | custom worlds need the map pipeline generalised; scenarios need stages A and B2 data |
+| H: gameplay | 3–4 sessions | after G; dilemmas, controls, goals and pacing first, then dynasty, rivals and spectator features |
 
 ## Decisions (approved 18 Nov 2026)
 
