@@ -29,6 +29,7 @@ const famUI = { picking: false, saved: (() => { try { return JSON.parse(store.ge
 const saveFamStore = () => store.set('families', JSON.stringify(famUI.saved));
 
 function newWorld(seed) {
+  if (typeof renderGovernor === 'function') setTimeout(renderGovernor, 0);
   branch = null; renderBranch();
   pplCache.clear(); langCache.clear();
   world = new World(geo, seed, worldOpts());
@@ -114,6 +115,11 @@ const MODES = {
   ideology: { label: 'Ideologies', color: i => { if (!world.ideoSup || world.pop[i] < 1) return [40, 46, 40]; const K = IDEOS.length; let b = 0, bv = -1; for (let k = 0; k < K; k++) { const v = world.ideoSup[i * K + k]; if (v > bv) { bv = v; b = k; } } if (bv <= 0) return [60, 64, 60]; const c = toRGB(IDEOS[b].color); const t = Math.min(1, 0.45 + bv); return [c[0] * t | 0, c[1] * t | 0, c[2] * t | 0]; },
     legendFn: () => IDEOS.filter((x, k) => k < 3 || (world.ideoBorn && world.ideoBorn[x.id])).map(x => [world.ideoName(IDEOS.indexOf(x)), x.color]) },
   nation: { label: 'Nationhood', color: i => { const o = world.owner[i]; if (o < 0) return [44, 50, 44]; return ramp([[90, 80, 70], [170, 150, 90], [90, 160, 200]], world.polities[o].nation || 0); }, legend: ['subjects', '', 'one nation'], legendColors: ['rgb(90,80,70)', 'rgb(170,150,90)', 'rgb(90,160,200)'] },
+  known: { label: 'Known world', color: i => {
+      const f = player.id >= 0 ? player.id : selected >= 0 && world.owner[selected] >= 0 ? world.owner[selected] : (world._largest()[0] || {}).id;
+      const o = world.owner[i], base = o < 0 ? [70, 78, 66] : toRGB(world.polities[o].color);
+      return f != null && world.knows && !world.knows(f, i) ? [14, 16, 22] : base; },
+    legendFn: () => { const f = player.id >= 0 ? player.id : selected >= 0 && world.owner[selected] >= 0 ? world.owner[selected] : (world._largest()[0] || {}).id; return f != null ? [[`what ${world.polities[f].name} knows (select another state to switch)`, '#888'], ['unknown to it', '#0e1016']] : []; } },
   government: { label: 'Government', color: i => { const o = world.owner[i]; return o < 0 ? [45, 52, 44] : GOV_COL[world.polities[o].gov] || [120, 120, 120]; },
     legendFn: () => Object.entries(GOV_COL).map(([g, c]) => [GOVS[g].label, css(c)]) },
   resources: { label: 'Resources', color: i => { const r = world.res[i]; for (const [k, c] of RES_ORDER) if (r & (1 << RES.indexOf(k))) return c; return [48, 56, 48]; },
@@ -285,6 +291,7 @@ function updatePanels() {
   $('states').innerHTML = top.map(p => `<div class="st" data-pol="${p.id}"><span class="sw" style="background:${p.color}"></span>${flagSVG(world, p, 18, 12)}&nbsp;<span class="nm">${p.name}</span><span class="v">${fmt(p.pop)}</span></div>`).join('');
   renderFamilies();
   if (player.id >= 0 && !player.busy && !$('playerbox').contains(document.activeElement)) renderPlayer();
+  renderGovernor();
   if (selected >= 0) showCell(selected);
 }
 function renderFamilies() {
@@ -292,7 +299,7 @@ function renderFamilies() {
   const html = world.families.filter(f => !f.removed).map(f => {
     const h = f.head, age = world.year - h.born;
     const tr = f.traits && f.traits.length ? ` · <i>${f.traits.join(', ')}</i>` : '';
-    return `<div class="fam" data-fam="${f.id}"><div><b>${h.given} ${f.surname}</b> <span class="dim">gen ${f.gen} · ${age}${f.guided ? ' · guided' : ''}</span></div><div class="dim">${h.job}, ${world._place(f.cell)}${tr}</div><div class="famact"><button class="xs" data-act="go">Show</button><button class="xs" data-act="log">Story so far</button><button class="xs" data-act="ai">Write their story (AI)</button><button class="xs" data-act="guide">${f.guided ? 'Stop guiding' : 'Guide'}</button>${f.custom ? '<button class="xs" data-act="save">Save</button>' : ''}<button class="xs" data-act="rm">Remove</button></div></div>`;
+    return `<div class="fam" data-fam="${f.id}"><div><b>${h.given} ${f.surname}</b> <span class="dim">gen ${f.gen} · ${age}${f.guided ? ' · guided' : ''}</span></div><div class="dim">${h.job}, ${world._place(f.cell)}${tr}</div><div class="famact"><button class="xs" data-act="go">Show</button><button class="xs" data-act="log">Story so far</button><button class="xs" data-act="ai">Write their story (AI)</button>${f.guided ? '<button class="xs primary" data-act="act">Decide…</button>' : ''}<button class="xs" data-act="guide">${f.guided ? 'Stop guiding' : 'Guide'}</button>${f.custom ? '<button class="xs" data-act="save">Save</button>' : ''}<button class="xs" data-act="rm">Remove</button></div></div>`;
   }).join('');
   if ($('families').dataset.h !== html) { $('families').innerHTML = html; $('families').dataset.h = html; }
 }
@@ -356,13 +363,13 @@ function showCell(i) {
   if (c.resources.length) html += row('Resources', c.resources.join(', '));
   if (p) {
     const wars = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a].name);
-    html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + row('Research / yr', (p.rpRate || 0).toFixed(0)) + (p.grainPrice ? row('Bread price', `${(p.grainPrice / world.priceLevel).toFixed(1)}× usual`) : '') + (p.classes ? row('Society', Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')) + row('Inequality', (p.gini || 0).toFixed(2)) + row('Unrest', Math.round(Math.min(1, p.unrest || 0) * 100) + '%') : '') + (p.exports ? row('Exports', p.exports.join(', ') || '–') + row('Imports', p.imports.join(', ') || '–') : '') + (p.taxRate ? row('Taxes', `${Math.round(p.taxRate * 100)}% of usual`) + row('Debt', p.debt > 0.01 ? `${(p.debt / Math.max(0.01, p.income)).toFixed(1)} years of income, at ${Math.round((p.interest || 0) * 100)}%${p.defaults ? `, ${p.defaults} default${p.defaults > 1 ? 's' : ''}` : ''}` : 'none') : '') + (p.ideo !== undefined ? row('Ruling idea', world.ideoName(p.ideo)) + (p.support ? row('Support', [...p.support].map((v, k) => [k, v]).filter(x => x[1] > 0.04).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${world.ideoName(k)} ${Math.round(v * 100)}%`).join(', ')) : '') + row('Nationhood', Math.round((p.nation || 0) * 100) + '%') + row('Toward its peoples', NATION_POLICY[p.nationPolicy || 'assimilate']) : '') + (p.inst && Object.keys(p.inst).length ? row('Institutions', Object.keys(p.inst).map(k => INST_LABEL[k]).join(', ')) : '');
+    html += `<div class="isec">State</div>` + row('Government', (GOVS[p.gov] || GOVS.kingdom).label) + row('State faith', p.rel >= 0 ? world.faiths[p.rel].name : '–') + row('Treasury', `${Math.round(p.treasury || 0)} (${(p.income || 0) >= (p.spend || 0) ? '+' : ''}${((p.income || 0) - (p.spend || 0)).toFixed(1)}/yr)`) + row('Trade partners', (p.tradePartners || new Set()).size) + row('Population', fmt(p.pop)) + row('Provinces', p.cells) + row('Founded', p.founded) + row('Stability', Math.round(p.stability * 100) + '%') + row('Army', fmt(p.army)) + (p.navy ? row('Navy', fmt(p.navy) + ' sailors' + (p.blockaded ? ' · blockaded' : '')) : '') + row('Research / yr', (p.rpRate || 0).toFixed(0)) + (p.grainPrice ? row('Bread price', `${(p.grainPrice / world.priceLevel).toFixed(1)}× usual`) : '') + (p.classes ? row('Society', Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')) + row('Inequality', (p.gini || 0).toFixed(2)) + row('Unrest', Math.round(Math.min(1, p.unrest || 0) * 100) + '%') : '') + (p.exports ? row('Exports', p.exports.join(', ') || '–') + row('Imports', p.imports.join(', ') || '–') : '') + (p.taxRate ? row('Taxes', `${Math.round(p.taxRate * 100)}% of usual`) + row('Debt', p.debt > 0.01 ? `${(p.debt / Math.max(0.01, p.income)).toFixed(1)} years of income, at ${Math.round((p.interest || 0) * 100)}%${p.defaults ? `, ${p.defaults} default${p.defaults > 1 ? 's' : ''}` : ''}` : 'none') : '') + (p.ideo !== undefined ? row('Ruling idea', world.ideoName(p.ideo)) + (p.support ? row('Support', [...p.support].map((v, k) => [k, v]).filter(x => x[1] > 0.04).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${world.ideoName(k)} ${Math.round(v * 100)}%`).join(', ')) : '') + row('Nationhood', Math.round((p.nation || 0) * 100) + '%') + row('Toward its peoples', NATION_POLICY[p.nationPolicy || 'assimilate']) : '') + (p.inst && Object.keys(p.inst).length ? row('Institutions', Object.keys(p.inst).map(k => INST_LABEL[k]).join(', ')) : '');
     if (wars.length) html += row('At war with', wars.join(', '));
     if (p.ruler) html += row('Ruler', `${world._rulerTitle(p)}, ${p.ruler.age}`) + row('Traits', p.ruler.traits.join(', ')) + row('House', `${p.ruler.dynasty}${p.ruler.elected ? '' : ' (since ' + p.ruler.since + ')'}`);
     const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);
     if (p.overlord != null) html += row('Vassal of', world.polities[p.overlord].name);
     const vs = world.polities.filter(q => q.alive && q.overlord === p.id); if (vs.length) html += row('Vassals', vs.map(q => q.name).join(', '));
-    html += `<div style="margin:6px 0"><button class="xs" data-play="${p.id}">${player.id === p.id ? 'You rule this state' : '▶ Play as this state'}</button> <button class="xs" data-page="${p.id}">State page</button></div>`;
+    html += `<div style="margin:6px 0"><button class="xs" data-play="${p.id}">${player.id === p.id ? 'You rule this state' : '▶ Play as this state'}</button> <button class="xs" data-page="${p.id}">State page</button> <button class="xs" data-gov="${i}">Govern this province</button></div>`;
     if (p.policy) html += row('Council priority', p.policy.focus + (p.policy.source === 'llm' ? ' (AI)' : ''));
   }
   html += `<div class="isec">Knows (${c.known})</div><div class="techs">${c.techs.join(' · ')}</div>`;
@@ -392,8 +399,9 @@ canvas.addEventListener('pointerup', e => {
   if (drag && !drag.moved) {
     const r = canvas.getBoundingClientRect(), ll = globe.invert(e.clientX - r.left, e.clientY - r.top);
     const id = ll ? globe.idAt(ll[0], ll[1]) : 65535;
-    if (id < world.N && famUI.picking) { famUI.picking = false; selected = id; showCell(id); openAddFamily(id); }
-    else if (id < world.N) { selected = id; showCell(id); } else { selected = -1; $('inspector').innerHTML = '<div class="hint">Click land to inspect it.</div>'; }
+    if (id < world.N && famUI.moveFam != null) { const f = world.families[famUI.moveFam]; famUI.moveFam = null; selected = id; showCell(id); world.familyAct(f, { key: 'picked', cell: id }); appendEvents(); renderFamilies(); }
+    else if (id < world.N && famUI.picking) { famUI.picking = false; selected = id; showCell(id); openAddFamily(id); }
+    else if (id < world.N) { selected = id; showCell(id); if (mode === 'known') { colorsDirty = true; renderLegend(); } } else { selected = -1; $('inspector').innerHTML = '<div class="hint">Click land to inspect it.</div>'; }
     needsDraw = true;
   }
   drag = null;
@@ -508,6 +516,7 @@ $('families').onclick = async e => {
   const f = world.families[+e.target.closest('.fam').dataset.fam];
   if (b.dataset.act === 'go') { focusCell(f.cell); return; }
   if (b.dataset.act === 'guide') { f.guided = !f.guided; renderFamilies(); return; }
+  if (b.dataset.act === 'act') { openFamilyActions(f); return; }
   if (b.dataset.act === 'rm') { f.alive = false; f.removed = true; world.familyPrompts = (world.familyPrompts || []).filter(q => q.fam !== f.id); renderFamilies(); return; }
   if (b.dataset.act === 'save') {
     const first = f.firstHead || f.head;
@@ -879,7 +888,7 @@ function statePage(p) {
     ${p.classes ? `<div class="kv"><span>Society</span><b>${Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')}</b></div><div class="kv"><span>Institutions</span><b>${Object.entries(p.inst || {}).map(([k, y]) => `${INST_LABEL[k]} (since ${y})`).join(', ') || '–'}</b></div>` : ''}
     ${(() => { const ws = (world.works || []).filter(w => w.pol === p.id); return ws.length ? `<div class="kv"><span>Great works</span><b>${ws.map(w => `${w.name} (${w.done ? 'built ' + w.done : w.abandoned ? 'abandoned' : 'building'})`).join('; ')}</b></div>` : ''; })()}
     <canvas id="sp-cv" style="width:100%;height:150px;margin-top:6px"></canvas>
-    ${wars.length ? `<div class="isec">Wars</div><table class="ctab">${wars.map(w => `<tr><td>${w.start}–${w.end ?? ''}</td><td>${w.name}</td><td>${fmt(w.deaths)} dead</td></tr>`).join('')}</table>` : ''}
+    ${wars.length ? `<div class="isec">Wars</div><table class="ctab">${wars.map(w => `<tr><td>${w.start}–${w.end ?? ''}</td><td>${w.name}</td><td class="dim">${{ provinces: 'for land', tribute: 'for tribute', faith: 'holy war', regime: 'regime change', independence: 'independence', throne: 'succession' }[w.goal || 'provinces']}</td><td>${fmt(w.deaths)} dead</td></tr>`).join('')}</table>` : ''}
     ${(() => { const bs = (world.battles || []).filter(b => b.winner === p.name || b.loser === p.name).sort((a, b) => b.dead - a.dead).slice(0, 10); return bs.length ? `<div class="isec">Great battles</div><table class="ctab">${bs.map(b => `<tr><td>${b.y}</td><td>${b.name}</td><td>${b.winner === p.name ? 'won' : 'lost'} (${b.winner === p.name ? b.wg : b.lg})</td><td>${fmt(b.dead)}</td></tr>`).join('')}</table>` : ''; })()}
     ${reigns ? `<div class="isec">Rulers (latest ${Math.min(25, p.reigns.length)})</div><table class="ctab">${reigns}</table>` : ''}
     <div class="isec">In the chronicle</div>${evs.slice(-40).map(e => `<p><b>${e.y}</b> ${e.text}</p>`).join('')}`;
@@ -1037,3 +1046,65 @@ $('panelbtn').onclick = () => { const a = document.querySelector('aside'); a.cla
   // a tap on the map on a phone shows the inspector
   canvas.addEventListener('pointerup', () => { if (window.innerWidth <= 820 && selected >= 0 && !pinch) { const a = document.querySelector('aside'); if (!a.classList.contains('open')) $('panelbtn').click(); setTimeout(() => $('inspector').scrollIntoView({ block: 'start', behavior: 'smooth' }), 260); } });
 }
+
+
+// ---------- a guided family's choices at any time ----------
+function openFamilyActions(f) {
+  const acts = world.familyActions(f), h = f.head;
+  $('story-title').textContent = `The ${f.surname} family, ${world.year}`;
+  const groups = [...new Set(acts.map(a => a.group))];
+  $('story-body').innerHTML = `<p class="dim">${h.given} ${f.surname}, ${world.year - h.born}, ${h.job} in ${world._place(f.cell)}${f.traits && f.traits.length ? ' · ' + f.traits.join(', ') : ''}.</p>` +
+    f.log.slice(-3).map(x => `<p class="dim"><b>${x.y}</b> ${x.text}</p>`).join('') +
+    groups.map(g => `<div class="isec">${g}</div><div class="crow" style="flex-wrap:wrap;gap:6px">${acts.filter(a => a.group === g).map(a => `<button class="xs" data-fa="${a.key}">${esc(a.label)}</button>`).join('')}</div>`).join('');
+  $('story').classList.add('open');
+  $('story-body').querySelectorAll('[data-fa]').forEach(b => b.onclick = () => {
+    const a = acts.find(x => x.key === b.dataset.fa);
+    $('story').classList.remove('open');
+    if (a.pick) { famUI.moveFam = f.id; $('inspector').innerHTML = `<div class="hint">Click the province where the ${f.surname} family should move.</div>`; return; }
+    world.familyAct(f, a); appendEvents(); renderFamilies();
+  });
+}
+
+
+// ---------- play as a governor ----------
+function renderGovernor() {
+  const g = world.governor, card = $('govcard');
+  if (!g) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  if ($('govbox').contains(document.activeElement) && g.status === 'governor') return;
+  const info = world.governorInfo(), p = info.state;
+  if (g.status === 'ended') { $('govbox').innerHTML = `<div class="hint">The governorship of the ${g.surname} family is over. ${g.log.length ? g.log.at(-1).text : ''}</div><div class="crow"><button class="xs" id="gv-close">Close</button></div>`; $('gv-close').onclick = () => { world.governor = null; renderGovernor(); }; return; }
+  if (g.status === 'ruler') { world.governor = null; renderGovernor(); setPlayer(g.newState); return; }
+  const pct = v => Math.round(v * 100) + '%';
+  $('govbox').innerHTML = `<div><b>${world._govTitle()} ${g.given} ${g.surname}</b> <span class="dim">${g.age}${g.gen > 1 ? ` · generation ${g.gen}` : ''}</span></div>
+    <div class="dim">${world._govPlace()} · ${g.cells.length} provinces · serving ${flagSVG(world, p, 18, 12)} ${p.name}</div>
+    <div class="kv"><span>People in your lands</span><b>${fmt(info.pop)} (${pct(info.mine)} ${info.people ? info.people.name : ''})</b></div>
+    <div class="kv"><span>Fed</span><b>${pct(info.fed)}</b></div>
+    <div class="kv"><span>The capital's suspicion</span><b style="color:${g.suspicion > 0.6 ? '#e06666' : g.suspicion > 0.35 ? '#f2b544' : 'inherit'}">${pct(Math.min(1, g.suspicion))}</b></div>
+    <div class="kv"><span>Your militia</span><b>${fmt(g.militia)}</b></div><div class="kv"><span>Imperial soldiers near you</span><b>${fmt(info.army)}</b></div>
+    <div class="kv"><span>Your purse</span><b>${g.purse.toFixed(1)}</b></div>
+    <div class="kv"><span>${p.name}</span><b>stability ${pct(p.stability)}${p.wars ? ` · ${p.wars} war${p.wars > 1 ? 's' : ''}` : ''}${p.ruler ? ` · ${world._rulerTitle(p)}, ${p.ruler.age}` : ''}</b></div>
+    ${g.status === 'recalled' ? `<p><b>You are summoned to the capital.</b></p><div class="crow"><button class="xs" id="gv-obey">Obey and go</button><button class="xs primary" id="gv-rise">Rise now (${pct(info.odds)} chance)</button></div>` : `
+    <label style="display:block"><input type="checkbox" id="gv-tax" ${g.policy.taxes ? 'checked' : ''}> Keep some taxes for the province</label>
+    <label style="display:block"><input type="checkbox" id="gv-cus" ${g.policy.customs ? 'checked' : ''}> Protect our people's language and customs</label>
+    <label style="display:block"><input type="checkbox" id="gv-mil" ${g.policy.militia ? 'checked' : ''}> Quietly raise a militia</label>
+    <div class="dim" style="margin:4px 0">With none ticked you serve loyally, and suspicion fades.</div>
+    <div class="crow"><button class="xs primary" id="gv-rise">Rise in revolt (${pct(info.odds)} chance)</button><button class="xs" id="gv-show">Show</button><button class="xs" id="gv-quit">Stop governing</button></div>`}`;
+  const pol = k => () => { g.policy[k] = $({ taxes: 'gv-tax', customs: 'gv-cus', militia: 'gv-mil' }[k]).checked; };
+  if ($('gv-tax')) { $('gv-tax').onchange = pol('taxes'); $('gv-cus').onchange = pol('customs'); $('gv-mil').onchange = pol('militia'); $('gv-show').onclick = () => focusCell(g.seat); $('gv-quit').onclick = () => { world.governor = null; renderGovernor(); }; }
+  if ($('gv-obey')) $('gv-obey').onclick = () => { world.governorObey(); appendEvents(); renderGovernor(); };
+  $('gv-rise').onclick = () => { const n = world.governorRevolt(); appendEvents(); colorsDirty = true; needsDraw = true; if (n) { world.governor = null; setPlayer(n.id); } renderGovernor(); };
+  // a recall stops the clock until you choose
+  if (g.status === 'recalled' && playing) $('play').click();
+}
+$('inspector').addEventListener('click', e => {
+  const b = e.target.closest('[data-gov]'); if (!b) return;
+  const c = +b.dataset.gov;
+  const here = world.peoplesHere ? world.peoplesHere(c) : [];
+  $('story-title').textContent = `Govern ${world._where(c) === world.polities[world.owner[c]].name ? 'a province of ' + world.polities[world.owner[c]].name : world._where(c)}`;
+  $('story-body').innerHTML = `<p>You become governor of this region for ${world.polities[world.owner[c]].name}. Serve it, or work towards your own people's freedom.</p>
+    <div class="crow"><label>Your governor is of the people <select id="gv-ppl">${here.map(x => `<option value="${x.q.id}">${x.q.name}</option>`).join('')}<option value="${world.ppl[world.polities[world.owner[c]].capital]}">${world.peoples[world.ppl[world.polities[world.owner[c]].capital]].name} (the rulers' people)</option></select></label></div>
+    <div class="crow" style="margin-top:8px"><button class="primary" id="gv-go">Take the governorship</button></div>`;
+  $('story').classList.add('open');
+  $('gv-go').onclick = () => { world.startGovernor(c, +$('gv-ppl').value); $('story').classList.remove('open'); appendEvents(); renderGovernor(); };
+});

@@ -197,11 +197,12 @@ export function installPolitics(World) {
     const mk = (a, b) => {
       if (this.atWarWith(a.id, b.id) || a.id === b.id) return null;
       const w = { a: a.id, b: b.id, start: this.year, end: null, deaths: 0, taken: 0, exA: 0, exB: 0, startCellsB: b.cells, name: `${this._short(a.name)}–${this._short(b.name)} War`, group: group.id };
+      w.goal = this._warGoal ? this._warGoal(a, b, why) : 'provinces';
       this.wars.push(w); this._warStarted(w); group.wars.push(w); group.members.add(a.id); group.members.add(b.id); a.wars++; b.wars++;
       return w;
     };
     const w = mk(A, B);
-    if (!silent && A.pop + B.pop > 3e6) this._log('war', `War: ${A.name} attacks ${B.name}${why ? ' ' + why : ''}.`, { pol: A.id });
+    if (!silent && A.pop + B.pop > 3e6) this._log('war', `War: ${A.name} attacks ${B.name}${why ? ' ' + why : w && w.goal !== 'provinces' ? ' ' + ({ tribute: 'to force it to pay tribute', faith: 'in a holy war', regime: 'to overthrow its government', independence: 'to win its independence', throne: 'for the throne' }[w.goal] || '') : ''}.`, { pol: A.id });
     // the defender's allies and overlord answer the call
     const callers = [];
     const alB = this.allianceOf(B.id);

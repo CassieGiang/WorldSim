@@ -94,7 +94,7 @@ export function installFamilies(World) {
   };
   P.resolveFamily = function (prompt, key) {
     const fam = this.families[prompt.fam], h = fam.head, o = prompt.options.find(x => x.key === key) || prompt.options[0];
-    this.familyPrompts = this.familyPrompts.filter(q => q !== prompt);
+    this.familyPrompts = (this.familyPrompts || []).filter(q => q !== prompt);
     if (o.cell != null && o.cell !== fam.cell) {
       const from = this._place(fam.cell); fam.cell = o.cell; fam.lastOwner = this.owner[o.cell];
       this._famLog(fam, `${h.given} chooses to leave ${from} and settles in ${this._place(o.cell)}.`, 'flee');
@@ -102,7 +102,50 @@ export function installFamilies(World) {
     if (o.job && o.job !== h.job) { const was = h.job; h.job = o.job; this._famLog(fam, `${h.given} chooses to become ${an(o.job)}${was ? ` instead of ${an(was)}` : ''}.`, 'job'); }
     if (o.stay) this._famLog(fam, `${h.given} chooses to stay in ${this._place(fam.cell)}.`, 'choice');
     if (o.hide) { fam.hideUntil = this.year + 3; this._famLog(fam, `${h.given} hides from the recruiters.`, 'choice'); }
+    this._familyExtra(fam, o);
   };
+  // the effects of the wider choices: schooling, marriage, faith, a trade, a new trait
+  P._familyExtra = function (fam, o) {
+    const h = fam.head;
+    if (o.trait && !(fam.traits || []).includes(o.trait)) { (fam.traits || (fam.traits = [])).push(o.trait); }
+    if (o.school) { fam.schooled = this.year; this._famLog(fam, `${h.given} pays for the children to learn their letters${this.cellTech[fam.cell][T.printing] ? ' at the new school' : ' with the priests'}.`, 'choice'); }
+    if (o.marry) { fam.marriedUp = { kind: o.marry, y: this.year }; this._famLog(fam, `${h.given}'s eldest marries into a ${o.marry} family.`, 'choice'); }
+    if (o.faith != null && this.faiths) { fam.lastRel = o.faith; fam.ownFaith = o.faith; this._famLog(fam, `${h.given} and the household ${o.faith === this.rel[fam.cell] ? 'take up' : 'hold on to'} ${this.faiths[o.faith].name}.`, 'faith'); }
+    if (o.save) { fam.savings = (fam.savings || 0) + 1; this._famLog(fam, `${h.given} hides away a little silver for hard times.`, 'choice'); }
+  };
+  // what a guided family can do at any time
+  P.familyActions = function (fam) {
+    const c = fam.cell, h = fam.head, out = [];
+    const city = this._nearestCityCell(c), best = this._bestRefuge(c, false);
+    if (city >= 0 && this.cityAt[c] < 0) out.push({ key: 'city', group: 'Move', label: `Move to the city: ${this._place(city)}`, cell: city });
+    if (best !== c) out.push({ key: 'better', group: 'Move', label: `Move to better land: ${this._place(best)}`, cell: best });
+    // the frontier: empty farmland not far away
+    let fr = -1, fv = 0; const ring = [...this.nb[c]]; for (const j of this.nb[c]) for (const k of this.nb[j]) for (const m of this.nb[k]) ring.push(m);
+    for (const j of ring) { const v = this.capCache[j] / Math.max(1, this.pop[j]); if (this.pop[j] > 200 && v > fv && v > 1.3) { fv = v; fr = j; } }
+    if (fr >= 0 && fr !== c) out.push({ key: 'frontier', group: 'Move', label: `Clear new fields on the frontier: ${this._place(fr)}`, cell: fr, job: 'farmer' });
+    // abroad: the richest neighbouring state
+    const o = this.owner[c];
+    if (o >= 0) {
+      const rich = [...this.polities[o].neighbours].map(q => this.polities[q]).filter(q => q.alive && q.capital >= 0 && (q.income || 0) / Math.max(1, q.pop) > (this.polities[o].income || 0) / Math.max(1, this.polities[o].pop)).sort((a, b) => b.pop - a.pop)[0];
+      if (rich) out.push({ key: 'abroad', group: 'Move', label: `Emigrate to ${rich.name}`, cell: rich.capital });
+      // overseas colonies, once the oceans are crossed
+      if (this.contactYear !== null && this.polities[o].fx.ocean) { for (let t = 0; t < 60; t++) { const i = this.rng.int(this.N); if (this.owner[i] === o && this.nw[i] !== this.nw[c] && this.pop[i] > 1000) { out.push({ key: 'colony', group: 'Move', label: `Sail to the colonies: ${this._place(i)}`, cell: i }); break; } } }
+    }
+    out.push({ key: 'pick', group: 'Move', label: 'Move to a province I pick on the map…', pick: true });
+    for (const j of this.jobOptions(c).filter(j => j !== "soldier").slice(0, 5)) if (j !== h.job) out.push({ key: 'job-' + j, group: 'Work', label: `Become ${an(j)}`, job: j });
+    if (h.job !== 'soldier') out.push({ key: 'army', group: 'Work', label: 'Join the army', job: 'soldier', trait: 'brave' });
+    out.push({ key: 'school', group: 'Family', label: 'Send the children to learn their letters', school: true, trait: 'scholarly' });
+    out.push({ key: 'marry-m', group: 'Family', label: 'Marry the eldest into a merchant family', marry: 'merchant' });
+    out.push({ key: 'marry-f', group: 'Family', label: 'Marry the eldest into a farming family nearby', marry: 'farming' });
+    out.push({ key: 'save', group: 'Family', label: 'Put silver aside for hard times', save: true, trait: 'frugal' });
+    if (this.rel && this.faiths) {
+      const here = this.rel[c], own = fam.ownFaith ?? fam.lastRel;
+      if (own != null && own !== here) { out.push({ key: 'convert', group: 'Faith', label: `Take up the local faith (${this.faiths[here].name})`, faith: here }); out.push({ key: 'keep', group: 'Faith', label: `Keep the old faith (${this.faiths[own].name})`, faith: own, trait: 'devout' }); }
+      else out.push({ key: 'devout', group: 'Faith', label: `Become pillars of the ${this.faiths[here].name} community`, faith: here, trait: 'devout' });
+    }
+    return out;
+  };
+  P.familyAct = function (fam, act) { this.resolveFamily({ fam: fam.id, options: [act] }, act.key); };
   P._bestRefuge = function (c, war) {
     let best = c, bv = this.nour[c] - (war ? 0.3 : 0);
     const cand = [...this.nb[c]]; for (const j of this.nb[c]) for (const k of this.nb[j]) cand.push(k);
@@ -142,6 +185,9 @@ export function installFamilies(World) {
   };
   P._jobForFam = function (fam, c, parent) {
     if (TR(fam, 'stubborn') && parent && this.rng.next() < 0.5) return parent;
+    const opts = this.jobOptions(c);
+    if (fam.marriedUp && fam.marriedUp.kind === 'merchant' && this.year - fam.marriedUp.y < 40 && this.rng.next() < 0.6) { const m = opts.find(j => /merchant|trader|shopkeeper|banker/.test(j)); if (m) return m; }
+    if (fam.schooled && this.year - fam.schooled < 40 && this.rng.next() < 0.6) { const m = opts.find(j => /scribe|clerk|teacher|priest|monk|doctor|engineer|printer|lawyer|programmer/.test(j)); if (m) return m; }
     for (let k = 0; k < 3; k++) {
       const j = this._jobFor(c, parent);
       if (TR(fam, 'scholarly') && !['scribe', 'clerk', 'teacher', 'printer', 'doctor', 'engineer', 'programmer', 'monk', 'priest'].includes(j) && k < 2) continue;
@@ -191,7 +237,7 @@ export function installFamilies(World) {
         else if (r.next() < 0.5) this._famLog(fam, r.pick([`Plague reaches ${this._place(c)}; ${h.given} buries neighbours but survives.`, `The sickness takes half the street in ${this._place(c)}. ${h.given} lives.`, `${h.given} nurses ${pos} family through the plague; not all of them recover.`]), 'plague');
       }
       if (!died && famine > 0.004) {
-        if (age > 3 && r.next() < famine * 2 * (TR(fam, 'frugal') ? 0.5 : 1)) died = `${h.given} starves in the famine of ${y}`;
+        if (age > 3 && r.next() < famine * 2 * (TR(fam, 'frugal') ? 0.5 : 1) * (fam.savings ? 0.5 : 1)) died = `${h.given} starves in the famine of ${y}`;
         else if (r.next() < 0.35) this._famLog(fam, r.pick([`Famine in ${this._place(c)}. ${h.given}'s family eats the seed grain to survive.`, `The harvest fails around ${this._place(c)}; ${h.given} sells the ox to buy grain.`, `Hunger in ${this._place(c)}. ${h.given} sends the youngest child to relatives.`, `A lean year: ${h.given}'s family lives on roots and bark until spring.`]), 'famine');
       }
       if (!died && war) {
@@ -246,7 +292,7 @@ export function installFamilies(World) {
         if (this.culture[fam.cell] !== fam.culture && r.next() < 0.3) fam.culture = this.culture[fam.cell];
         // traits run in families, with the odd new one
         if (fam.traits && fam.traits.length) { fam.traits = fam.traits.filter(() => r.next() < 0.85); if (r.next() < 0.15) { const t = r.pick(Object.keys(FAMILY_TRAITS)); if (!fam.traits.includes(t)) fam.traits.push(t); } }
-        if (fam.guided) { const opts = this.jobOptions(fam.cell).slice(0, 4).map(j => ({ key: j, label: j === fam.head.job ? `Stay ${an(j)}` : `Become ${an(j)}`, job: j })); const city = this._nearestCityCell(fam.cell); if (city >= 0 && this.cityAt[fam.cell] < 0) opts.push({ key: 'city', label: `Leave for the city: ${this._place(city)}`, cell: city }); if (opts.length > 1) this._ask(fam, 'age', `${fam.head.given} ${fam.surname} now heads the family. What will ${fam.head.sex === "f" ? "she" : "he"} do?`, opts); }
+        if (fam.guided) { const opts = this.jobOptions(fam.cell).slice(0, 4).map(j => ({ key: j, label: j === fam.head.job ? `Stay ${an(j)}` : `Become ${an(j)}`, job: j })); const city = this._nearestCityCell(fam.cell); if (city >= 0 && this.cityAt[fam.cell] < 0) opts.push({ key: 'city', label: `Leave for the city: ${this._place(city)}`, cell: city }); for (const a of this.familyActions(fam).filter(a => ['frontier', 'abroad', 'colony', 'school', 'marry-m'].includes(a.key))) opts.push(a); if (opts.length > 1) this._ask(fam, 'age', `${fam.head.given} ${fam.surname} now heads the family. What will ${fam.head.sex === "f" ? "she" : "he"} do?`, opts); }
       } else {
         // careers change during a life: war, hard times, moving to a city, new trades arriving
         let change = 0;

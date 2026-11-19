@@ -12,6 +12,8 @@ import { installWhatIf } from './whatif.js';
 import { installEconomy, installMarkets } from './economy.js';
 import { installIdeologies } from './ideologies.js';
 import { installArmies } from './armies.js';
+import { installWarfare2 } from './warfare2.js';
+import { installGovernor } from './governor.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -420,6 +422,8 @@ export class World {
     this._research(y);
     this._stability(y);
     warD += this._warfare(y);
+    this._warfare2(y);
+    if (this.governor) this._governorYear(y);
     this._expansion(y);
     this._contact(y);
     this._famineLog(y);
@@ -555,7 +559,7 @@ export class World {
     for (const p of this.polities) {
       if (!p.alive) continue;
       const U = p.urban / 1e6;
-      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.08) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (p.instFx ? p.instFx.research : 1) * (p.ideoFx ? p.ideoFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
+      p.ownRp = 0.4 * Math.pow(Math.max(U, 0.001), 0.8) * p.fx.research * Math.pow(1.025, p.fx.known) * (0.4 + p.stability) * (this.opts.researchSpeed || 1.10) * (this._focus(p.id) === 'science' ? 1.35 : 1) * this._govFx(p).research * this._rulerFx(p).research * (p.resFx ? p.resFx.research : 1) * (p.instFx ? p.instFx.research : 1) * (p.ideoFx ? p.ideoFx.research : 1) * (1 + Math.min(0.25, Math.max(0, p.treasury || 0) / ((p.income || 0) * 30 + 1)));
     }
     for (const p of this.polities) {
       if (!p.alive) continue;
@@ -715,6 +719,7 @@ export class World {
       const A = this.polities[w.a], B = this.polities[w.b];
       if (!A.alive || !B.alive) { this._endWar(w, ''); continue; }
       const camp = this._campaign(w);
+      const nd = this._naval(w); camp.deaths += nd;
       const ratio = (A.army || 0) / ((B.army || 0) * B.fx.defense + 1) * camp.mul;
       let front = [], back = [];
       for (let i = 0; i < this.N; i++) {
@@ -790,6 +795,7 @@ export class World {
     if (w.end) return;
     w.end = this.year;
     if (this.armies) this.armies = this.armies.filter(a => a.war !== w);
+    if (!how && this._treaty) this._treaty(w);
     if (this.truces) { this._warEnded(w); this._afterPeace(w); }
     const A = this.polities[w.a], B = this.polities[w.b];
     if (w.deaths > 50000 || how) {
@@ -1105,4 +1111,6 @@ installEconomy(World);
 installMarkets(World);
 installIdeologies(World);
 installArmies(World);
+installWarfare2(World);
+installGovernor(World);
 World.prototype._rngFactory = makeRng;

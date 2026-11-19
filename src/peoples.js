@@ -113,7 +113,7 @@ export function installPeoples(World) {
         * (1.5 - loc.identity) * (1 / (1 + d / 18)) * (p.tech[T.printing] && !p.tech[T.public_education] ? 0.7 : 1) * (colonial ? 3 : 1);
       // a big local majority holds on much better than a thin one
       if (this.pop[i] > 3e5 / this.K && !touch) rate *= 0.5;
-      this._mixIn(i, R, rate * (this.nationFx ? this.nationFx(p).assim : 1));
+      this._mixIn(i, R, rate * (this.nationFx ? this.nationFx(p).assim : 1) * (this.governor && this.governorShield(i) ? 0.15 : 1));
     }
   };
 

@@ -29,6 +29,9 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 **Armies and war**
 - Each side of a war fields an army with a named general (brilliant, bold, cautious, cruel, a master of supply…) and the troops of its era, from spearmen to tanks. Armies march over terrain, faster on roads and railways, and live off the land, so long campaigns starve themselves and the provinces they cross.
 - Battles are named after the nearest city. Walled cities must be besieged; gunpowder shortens sieges. Generals with many victories become famous and may seize power.
+- Wars have goals (land, tribute, holy war, regime change, independence, the throne) and end in named treaties (land, reparations, forced conversion, imposed governments).
+- Navies fight, blockade ports and land troops. Pirates prey on unguarded sea lanes; bandits rule the roads of weak states.
+- Explorers fill in each state's map; the *Known world* map mode shows what the selected state (or yours) knows.
 - The front moves where the armies are. Armies, their roads and recent battles are drawn on the political map; click one to see it.
 
 **Ideas and nations**
@@ -103,7 +106,7 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 1. **Replay mode** (`node force.mjs <seed>`): every tech appears at its real date. Food and demography were tuned until world population follows the real curve: the replay gives 8.3 billion in 2026 against 8.2 real.
 2. **Tech costs** (`node costs.mjs`): each cost is the research the leading state produced between the date the tech became possible and its real date.
 3. **Many worlds** (`node batch.mjs 50 1 2026`): free-running worlds then scatter around real history. An early lead feeds on itself, so the spread is wide.
-   The only free knob is research speed (`RS`, default 1.08). It went 1.12 → 1.15 with the peoples layer (more breakaways) and 1.15 → 1.08 with field armies (bigger conquests); 12-world medians are now printing 1462, factories 1786, contact 1489.
+   The only free knob is research speed (`RS`, default 1.10). It went 1.12 → 1.15 with the peoples layer (more breakaways), 1.15 → 1.08 with field armies (bigger conquests) and 1.08 → 1.10 with navies, treaties and bandits; 12-world medians are now printing 1402, factories 1761, contact 1451.
 4. **Hold-out validation** (`node validate.mjs 12 1 0` normal, `node validate.mjs 12 1 1` blind): wars, cities, urban share, life expectancy, faiths, number of states and democracies are never tuned. They are compared with history in `reports/`. Currently 13 of 27 pass in normal mode and 10 of 21 in blind mode. The failures are the to-do list in `ROADMAP.md`.
 
 Only the population curve and the median tech dates are calibrated. Everything else is emergent or a fixed input (map, year-1 states, and in normal mode the dates of plagues, eruptions and prophets).
@@ -115,7 +118,8 @@ Only the population curve and the median tech dates are calibrated. Everything e
 - **Chronicle:** filters, plus export to `.md` (readable) or `.json` (everything).
 - **Many worlds:** runs dozens of seeds in the background. Click a row to open that world.
 - **Play a state:** click a state, then *Play as this state*. Every council year (25 by default) the game pauses and you are the council: set the priority, declare war, make peace, join or leave alliances and write a proclamation. The YOU card also lets you act at any time. If your state falls you can take over its successor, pick another or just watch.
-- **Families:** *+ Add a family* in the Families card. Pick a province (or use the selected one), choose names, sex, work and traits (stubborn, restless, devout, scholarly, brave, frugal). Traits run in the family and change its fortunes. *Guide* pauses at famines, wars, new chances and each new head of the family so you choose. *Save* starts the family in every new world. The built-in families can be switched off.
+- **Play as a governor:** *Govern this province* in the inspector. Choose your people (e.g. Lạc Việt inside the Han), then serve loyally, keep some taxes, protect your people's customs or quietly raise a militia while the capital's suspicion grows. If recalled, obey or rise. A successful revolt makes you ruler of a new state named by your people.
+- **Families:** *+ Add a family* in the Families card. Pick a province (or use the selected one), choose names, sex, work and traits (stubborn, restless, devout, scholarly, brave, frugal). Traits run in the family and change its fortunes. *Guide* pauses at famines, wars, new chances and each new head of the family so you choose; *Decide…* lets you act at any time: move to the city, better land, the frontier, abroad, the colonies or any province you pick, change work, school the children, marry into a merchant family, save silver, keep or change faith. *Save* starts the family in every new world. The built-in families can be switched off.
 - **What if…:** copies the world at the current year and changes one thing in branch B (a ruler lives or dies, a civil war, peace, a plague, a plague that never comes, no cold centuries, or just different luck). Both branches run side by side; the What if card compares them and you can view either or keep one.
 - **Side by side:** with a what-if open, *Side by side* shows both branches on two globes that turn together.
 - **Record:** records the globe (one or two) to a `.webm` video with a title card, captions (year, people, the latest big event), a camera that flies to big events, and an end card. Sizes 1920×1080, 1280×720, square and vertical.
