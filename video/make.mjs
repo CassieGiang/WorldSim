@@ -148,7 +148,7 @@ async function writeScript(P, beats) {
 }
 function plain(b) {
   const ev = b.event.replace(/\.$/, '').replace(/\s*\(\d+–\d+\)/, '');
-  const extra = b.facts.length ? ` Earlier, in ${b.facts.at(-1).replace(/^(\d+):\s*/, '$1, ').replace(/\.$/, '')}.` : '';
+  const extra = b.facts.length ? ` Earlier, in ${b.facts.at(-1).replace(/^(\d+):\s*(A|An|The) /, (m, y, a) => `${y}, ${a.toLowerCase()} `).replace(/^(\d+):\s*/, '$1, ').replace(/\.$/, '')}.` : '';
   const pop = (b.context.match(/World population about ([^.]+)/) || [])[1];
   return `The year ${yearStr(b.year)}. ${ev}.${extra}${pop ? ` The world now holds about ${pop} people.` : ''}`.replace(/\s+/g, ' ').trim();
 }
