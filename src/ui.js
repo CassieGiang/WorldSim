@@ -1037,6 +1037,73 @@ function frame(now) {
   requestAnimationFrame(frame);
 })();
 window.__world = () => world;
+// ---------- film mode: an API the video factory (video/make.mjs) drives frame by frame ----------
+const film = { cv: null, x: null };
+window.__film = {
+  // a fresh world with the given options; council modes off so the run is the plain simulation
+  setup(o) {
+    document.body.classList.add('film');
+    council.mode = o.council || 'off';
+    if ($('blind')) $('blind').checked = !!o.blind;
+    if ($('scen')) $('scen').value = o.scenario ? String(o.scenario) : '';
+    playing = false; jumpTarget = null;
+    newWorld(o.seed || 1);
+    resize();
+    film.cv = document.createElement('canvas'); film.cv.width = o.width || 1920; film.cv.height = o.height || 1080; film.x = film.cv.getContext('2d');
+    $('modes').querySelector('[data-mode=political]').click();
+    return { year: world.year, N: world.N };
+  },
+  // run to a year and report what happened, for planning
+  plan(to) {
+    while (world.year < to) world.step();
+    // events without a place: the first state named in the text, at its capital
+    const byName = new Map(); for (const p of world.polities) if (p.capital >= 0 && (!byName.has(p.name) || p.alive)) byName.set(p.name, p.capital);
+    const names = [...byName.keys()].sort((a, b) => b.length - a.length);
+    const placeOf = t => { for (const n of names) if (t.includes(n)) return byName.get(n); return -1; };
+    const ev = world.events.filter(e => e.type !== 'family' && e.type !== 'city').map(e => {
+      const c = e.cell !== undefined && e.cell >= 0 ? e.cell : e.pol !== undefined && e.pol >= 0 && world.polities[e.pol].capital >= 0 ? world.polities[e.pol].capital : placeOf(e.text);
+      return { y: e.y, type: e.type, text: e.text, big: !!e.big, deaths: e.deaths || 0, lon: c >= 0 ? world.lon[c] : null, lat: c >= 0 ? world.lat[c] : null };
+    });
+    const hist = world.history.filter((h, k) => k % 10 === 0 || k === world.history.length - 1).map(h => ({ y: h.y, pop: h.pop, states: h.states }));
+    const tops = {};
+    for (const p of world.polities) for (const h of p.hist || []) { if (h[0] % 50 !== 0) continue; (tops[h[0]] = tops[h[0]] || []).push([p.name, h[1]]); }
+    for (const y in tops) tops[y] = tops[y].sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const tech = Object.entries(world.firstTech).filter(([, f]) => f.year > 0).map(([id, f]) => ({ id, name: (TECHS.find(t => t.id === id) || {}).name || id, year: f.year, by: f.by, real: (TECHS.find(t => t.id === id) || {}).ry }));
+    return { seed: world.seed, year: world.year, events: ev, hist, tops, tech, totals: world.totals, largest: world._largest().slice(0, 5).map(p => ({ name: p.name, pop: p.pop })), pop: world.worldPop(), blind: !!world.opts.blind };
+  },
+  // one frame: run to the year, place the camera, draw everything, return a JPEG data URL
+  frame(f) {
+    let changed = film.lastYear !== world.year || film.lastMode !== mode;
+    while (world.year < f.year) { world.step(); changed = true; }
+    if (f.mode && f.mode !== mode) { $('modes').querySelector(`[data-mode=${f.mode}]`).click(); changed = true; }
+    if (f.lon !== undefined) { globe.view.lon = f.lon; globe.view.lat = f.lat; }
+    if (f.scale) globe.view.scale = f.scale;
+    selected = -1; if (changed) colorsDirty = true; film.lastYear = world.year; film.lastMode = mode; draw();
+    const x = film.x, W = film.cv.width, H = film.cv.height, u = H / 1080, g = $('globe'), o = $('overlay');
+    x.fillStyle = '#060a14'; x.fillRect(0, 0, W, H);
+    const k = Math.max(W / g.width, H / g.height), dw = g.width * k, dh = g.height * k;
+    x.drawImage(g, (W - dw) / 2, (H - dh) / 2, dw, dh); x.drawImage(o, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    const F = 'Inter, system-ui, sans-serif';
+    // map label (top left) when the mode is not political
+    if (f.label) { x.fillStyle = 'rgba(6,10,20,.75)'; x.font = `600 ${24 * u}px ${F}`; const w = x.measureText(f.label).width; x.fillRect(36 * u, 32 * u, w + 32 * u, 46 * u); x.fillStyle = '#f2b544'; x.fillText(f.label, 52 * u, 64 * u); }
+    if (f.lower !== false) {
+      const h = world.history.at(-1);
+      const gr = x.createLinearGradient(0, H - 230 * u, 0, H); gr.addColorStop(0, 'rgba(6,10,20,0)'); gr.addColorStop(1, 'rgba(6,10,20,.94)'); x.fillStyle = gr; x.fillRect(0, H - 230 * u, W, 230 * u);
+      x.fillStyle = '#f2b544'; x.font = `700 ${76 * u}px ${F}`; x.fillText(world.year < 0 ? -world.year + ' BC' : String(world.year), 52 * u, H - 64 * u);
+      x.fillStyle = '#e8e2d2'; x.font = `500 ${24 * u}px ${F}`; x.fillText(`${fmt(h.pop)} people · ${h.states} states`, 52 * u, H - 26 * u);
+      if (f.title) { x.globalAlpha = f.titleAlpha ?? 1; x.fillStyle = '#ffffff'; x.font = `700 ${38 * u}px ${F}`; x.fillText(f.title, 380 * u, H - 104 * u); x.globalAlpha = 1; }
+      if (f.sub) { x.globalAlpha = f.titleAlpha ?? 1; x.fillStyle = '#d6d0c0'; x.font = `500 ${27 * u}px ${F}`; wrapText(x, f.sub, 380 * u, H - 62 * u, W - 440 * u, 36 * u); x.globalAlpha = 1; }
+    }
+    if (f.card) {
+      x.globalAlpha = f.card.alpha ?? 1; x.fillStyle = 'rgba(6,10,20,.86)'; x.fillRect(0, 0, W, H);
+      x.textAlign = 'center'; x.fillStyle = '#f2b544'; x.font = `700 ${70 * u}px ${F}`; x.fillText(f.card.title, W / 2, H / 2 - 70 * u);
+      x.fillStyle = '#e8e2d2'; x.font = `500 ${30 * u}px ${F}`; (f.card.lines || []).forEach((l, i) => x.fillText(l, W / 2, H / 2 + (i * 46) * u));
+      x.textAlign = 'left'; x.globalAlpha = 1;
+    }
+    if (f.fade) { x.fillStyle = `rgba(0,0,0,${f.fade})`; x.fillRect(0, 0, W, H); }
+    return film.cv.toDataURL('image/jpeg', 0.92);
+  },
+};
 window.__drawTime = () => { const t = performance.now(); for (let k = 0; k < 10; k++) { colorsDirty = true; draw(); } return (performance.now() - t) / 10; };
 
 

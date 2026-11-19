@@ -153,6 +153,27 @@ Only the population curve and the median tech dates are calibrated. Everything e
 - **Blind mode:** tick *Blind* before a new world. Plagues, eruptions, climate eras and prophets are then random rather than historical, which shows how much of the result comes from the scripted inputs.
 - **AI councils:** install Ollama and pull a model (e.g. `ollama pull qwen2.5:7b`). On Windows, set the user environment variable `OLLAMA_ORIGINS=*` and restart Ollama, because the page is opened from a file. Then pick *AI councils* and press **Test**.
 
+## Making videos
+
+`video/make.mjs` turns a seed into a narrated documentary (MP4 plus an .srt subtitle file):
+
+```
+npm i puppeteer            # once: a browser to film in (or puppeteer-core with CHROME=path)
+npm i kokoro-js            # optional, once: Kokoro voice (downloads an 80 MB model on first use)
+node video/make.mjs --seed 7 --minutes 5 --model qwen2.5:7b
+```
+
+What it does:
+1. Runs the world in the page once and reads the chronicle.
+2. Picks the story beats (new faiths, falls and break-ups of empires, key inventions, the two halves of the world meeting, the deadliest wars and plagues), about one every 24 seconds.
+3. Writes the narration with your local Ollama model; without one it uses plain sentences from the chronicle.
+4. Voices it with Kokoro (`--kokoro-voice bm_george`), falling back to espeak-ng, or silent with subtitles (`--voice none`).
+5. Films each scene in the page: a time-lapse from the previous beat while the camera flies to the next, then the event's caption. Scenes are encoded one by one (rerunning skips finished scenes; `--refilm` redoes them), joined without re-encoding, and the narration is laid over them.
+
+Everything lands in `video/out/seed7/`. To change the words, edit `script.json` there and run `node video/make.mjs --script video/out/seed7/script.json --refilm`. Useful flags: `--plan-only` (stop after the script), `--stills` (a few full-size frames to check the look), `--blind`, `--scenario 1800`, `--to 1500`, `--width 1080 --height 1920` (vertical), `--title "…"`, `--ollama http://host:11434`, `--no-llm`.
+
+Filming draws every frame on the graphics card; with software rendering it runs at about 5 frames a second.
+
 ## Building
 ```
 npm install

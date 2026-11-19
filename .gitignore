@@ -6,3 +6,4 @@ batches/
 *.jpg
 leadrp_*.json
 !src/shade.jpg
+video/out/

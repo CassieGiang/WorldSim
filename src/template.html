@@ -87,6 +87,7 @@
   #commentary.on { opacity:1; }
   .lrow { display:grid; grid-template-columns:minmax(150px,auto) 110px 1fr; gap:8px; align-items:center; font-size:12px; padding:1px 0; } .lbar { height:6px; background:#1b2338; border-radius:3px; overflow:hidden; } .lbar i { display:block; height:100%; } .lfam { border-bottom:1px solid var(--line); padding:5px 0; } .lfam summary { cursor:pointer; }
   .bstory { margin-top:8px; font-size:12.5px; line-height:1.5; border-left:3px solid var(--gold); padding-left:10px; }
+  body.film header, body.film aside, body.film .note, body.film #commentary, body.film #toast { display:none !important; } body.film #app { grid-template-columns:1fr !important; grid-template-rows:1fr !important; } body.film main { grid-column:1 !important; grid-row:1 !important; }
   a.enc { color:var(--gold); text-decoration:none; } a.enc:hover { text-decoration:underline; } a.encback { margin-right:6px; }
   .gbar { height:6px; background:#1b2338; border-radius:3px; margin:5px 0; overflow:hidden; } .gbar i { display:block; height:100%; background:var(--gold); }
   .score { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0; } .score div { background:#121a2c; border:1px solid var(--line); border-radius:8px; padding:8px; display:flex; flex-direction:column; } .score b { font-size:15px; } .score span { font-size:11px; opacity:.7; }
