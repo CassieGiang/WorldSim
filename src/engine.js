@@ -15,6 +15,7 @@ import { installArmies } from './armies.js';
 import { installWarfare2 } from './warfare2.js';
 import { installGovernor } from './governor.js';
 import { installEnvironment } from './environment.js';
+import { installScenarios } from './scenarios.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -146,6 +147,7 @@ export class World {
     this._ideoInit();
     this._famInit();
     this._aggregate();
+    if (opts.scenario) this._scenarioStart(+opts.scenario);
     this._initTowns();
   }
 
@@ -905,7 +907,8 @@ export class World {
 
   // ---------- councils (rule-based or LLM) ----------
   _focus(pid) { if (pid < 0) return null; const p = this.polities[pid]; return p && p.policy ? p.policy.focus : null; }
-  councilMembers(n = 5) { return this.polities.filter(p => p.alive && p.id !== this.playerId && p.cells >= 3 * this.K).sort((a, b) => b.pop - a.pop).slice(0, n); }
+  isPlayer(id) { return id === this.playerId || (this.playerIds && this.playerIds.includes(id)); }
+  councilMembers(n = 5) { return this.polities.filter(p => p.alive && !this.isPlayer(p.id) && p.cells >= 3 * this.K).sort((a, b) => b.pop - a.pop).slice(0, n); }
   brief(p) {
     const rank = this.polities.filter(q => q.alive && q.pop > p.pop).length + 1;
     let fed = 0, cells = 0, fam = 0;
@@ -1117,4 +1120,5 @@ installArmies(World);
 installWarfare2(World);
 installGovernor(World);
 installEnvironment(World);
+installScenarios(World);
 World.prototype._rngFactory = makeRng;

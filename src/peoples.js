@@ -178,12 +178,12 @@ export function installPeoples(World) {
       const p = this.polities[g.o], q = this.peoples[g.q];
       if (!p.alive || p.cells - g.cells < 2) continue;
       const share = g.pop / Math.max(1, p.pop);
-      const nation = p.tech[T.printing] ? 1 : 0, mass = p.tech[T.public_education] ? 1 : 0;
+      const nation = p.tech[T.printing] && this.ideoBorn && this.ideoBorn.nationalist ? 1 : 0, mass = nation && p.tech[T.public_education] ? 1 : 0;
       const far = Math.min(2, g.d / g.cells / 15), faith = g.faith / g.pop > 0.5 ? 1.6 : 1;
       q.grievance = Math.min(3, q.grievance + 0.002 * faith * (1 + nation));
       let pr = 0.0004 * q.identity * q.identity * 4 * (1.3 - p.stability) * (0.5 + far) * faith * (q.hadState ? 1.4 : 1) * (p.wars ? 1.6 : 1) * (1 + q.grievance)
         * (nation ? 2.5 : 1) * (mass ? 2 : 1) * Math.min(1, share * 6 + 0.3) * (p.overlord != null ? 1.3 : 1) * this.sK;
-      if (p.id === this.playerId) pr *= 0.8;
+      if (this.isPlayer(p.id)) pr *= 0.8;
       if (this.nationFx) { const nf = this.nationFx(p); pr *= nf.revolt; q.grievance = Math.min(3, q.grievance * (1 + (nf.grievance - 1) * 0.01)); }
       if (rng.next() > pr) continue;
       // will it succeed? the rebels' numbers against the state's grip

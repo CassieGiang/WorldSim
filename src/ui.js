@@ -19,10 +19,13 @@ let world, playing = false, speed = 10, mode = 'political', selected = -1, needs
 let rot = [-60, -25], scale = 1;
 const store = { get: (k, d) => { try { const v = localStorage.getItem('worldsim.' + k); return v === null ? d : v; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem('worldsim.' + k, v); } catch {} } };
 const council = { mode: store.get('cmode', 'off'), every: +store.get('cevery', 25), size: +store.get('csize', 5), url: store.get('curl', 'http://localhost:11434'), model: store.get('cmodel', 'qwen2.5:7b'), busy: false, held: -1, errors: 0 };
-function worldOpts() { return { blind: $('blind') && $('blind').checked, council: council.mode === 'rules' ? 'rules' : null, councilEvery: council.every, councilSize: council.size }; }
+function worldOpts() { return { scenario: $('scen') && $('scen').value ? +$('scen').value : 0, blind: $('blind') && $('blind').checked, council: council.mode === 'rules' ? 'rules' : null, councilEvery: council.every, councilSize: council.size }; }
 const canvas = $('overlay');
 let globe = null, colorsDirty = true;
-const player = { id: -1, held: -1, busy: false, fallen: false };
+const player = { id: -1, held: -1, busy: false, fallen: false, seats: [], active: -1 };
+// hot-seat: several players, each with a seat (a state); player.id is the seat whose turn it is
+function syncSeats() { const s = player.seats[player.active]; player.id = s ? s.id : -1; player.held = s ? s.held : -1; player.fallen = s ? s.fallen : false; world.playerId = player.id; world.playerIds = player.seats.map(x => x.id); }
+function useSeat(k) { player.active = k; syncSeats(); renderPlayer(); }
 let branch = null;   // what-if: { A, B, active: 'A' | 'B' }
 let globe2 = null, split = false, rec = null;
 const famUI = { picking: false, saved: (() => { try { return JSON.parse(store.get('families', '[]')); } catch { return []; } })(), builtin: store.get('builtinFam', '1') === '1' };
@@ -33,7 +36,7 @@ function newWorld(seed) {
   branch = null; renderBranch();
   pplCache.clear(); langCache.clear();
   world = new World(geo, seed, worldOpts());
-  council.held = -1; player.id = -1; player.held = -1; player.busy = false; world.playerId = -1; renderPlayer();
+  council.held = -1; player.seats = []; player.active = -1; player.busy = false; syncSeats(); renderPlayer();
   selected = -1; lastEventCount = 0; $('log').innerHTML = ''; spin = null;
   $('seed').value = seed;
   if (!famUI.builtin) for (const f of world.families || []) { f.alive = false; f.removed = true; }
@@ -308,7 +311,7 @@ function drawChart() {
   const c = $('chart'), x = c.getContext('2d'), dpr = window.devicePixelRatio || 1;
   const W = c.clientWidth, H = c.clientHeight; c.width = W * dpr; c.height = H * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0);
   x.clearRect(0, 0, W, H);
-  const y0 = 1, y1 = Math.max(world.year, 200);
+  const y0 = world.history.length ? world.history[0].y : 1, y1 = Math.max(world.year, y0 + 199);
   const lmin = Math.log10(1e8), lmax = Math.log10(2e10);
   const X = y => 4 + (y - y0) / (y1 - y0) * (W - 8), Y = p => H - 14 - (Math.log10(Math.max(p, 1e8)) - lmin) / (lmax - lmin) * (H - 22);
   x.strokeStyle = 'rgba(255,255,255,0.08)'; x.lineWidth = 1;
@@ -371,7 +374,7 @@ function showCell(i) {
     const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);
     if (p.overlord != null) html += row('Vassal of', world.polities[p.overlord].name);
     const vs = world.polities.filter(q => q.alive && q.overlord === p.id); if (vs.length) html += row('Vassals', vs.map(q => q.name).join(', '));
-    html += `<div style="margin:6px 0"><button class="xs" data-play="${p.id}">${player.id === p.id ? 'You rule this state' : '▶ Play as this state'}</button> <button class="xs" data-page="${p.id}">State page</button> <button class="xs" data-gov="${i}">Govern this province</button></div>`;
+    html += `<div style="margin:6px 0"><button class="xs" data-play="${p.id}">${player.id === p.id ? 'You rule this state' : '▶ Play as this state'}</button>${player.seats.length && !player.seats.some(s => s.id === p.id) ? ` <button class="xs" data-seat="${p.id}">+ Add as Player ${player.seats.length + 1}</button>` : ''} <button class="xs" data-page="${p.id}">State page</button> <button class="xs" data-gov="${i}">Govern this province</button></div>`;
     if (p.policy) html += row('Council priority', p.policy.focus + (p.policy.source === 'llm' ? ' (AI)' : ''));
   }
   html += `<div class="isec">Knows (${c.known})</div><div class="techs">${c.techs.join(' · ')}</div>`;
@@ -643,27 +646,31 @@ $('x-json').onclick = () => {
 };
 
 // ---------- player mode ----------
-function setPlayer(id) {
+function setPlayer(id, add = false) {
   if (id >= 0) showTab('play');
-  player.id = id; world.playerId = id; player.held = world.year; player.fallen = false;
+  if (id < 0) { if (player.active >= 0) player.seats.splice(player.active, 1); player.active = player.seats.length ? 0 : -1; }
+  else if (add || !player.seats.length) { player.seats.push({ id, held: world.year, fallen: false, name: `Player ${player.seats.length + 1}` }); player.active = player.seats.length - 1; }
+  else { const s = player.seats[player.active]; s.id = id; s.held = world.year; s.fallen = false; }
+  syncSeats();
   renderPlayer(); if (selected >= 0) showCell(selected);
-  if (id >= 0) world._log('council', `You take the throne of ${world.polities[id].name}.`, { pol: id, big: true });
+  if (id >= 0) world._log('council', `${player.seats.length > 1 ? player.seats[player.active].name + ' takes' : 'You take'} the throne of ${world.polities[id].name}.`, { pol: id, big: true });
   appendEvents();
 }
-$('inspector').addEventListener('click', e => { const b = e.target.closest('[data-play]'); if (b) setPlayer(+b.dataset.play); });
+$('inspector').addEventListener('click', e => { const b = e.target.closest('[data-play]'); if (b) setPlayer(+b.dataset.play); const a = e.target.closest('[data-seat]'); if (a) setPlayer(+a.dataset.seat, true); });
 const pOpts = (list, empty) => list.length ? list.map(q => `<option value="${q.id}">${q.name}</option>`).join('') : `<option value="">${empty}</option>`;
 function renderPlayer() {
   const box = $('playerbox');
   if (player.id < 0) { box.innerHTML = '<div class="hint">Click a state and press <b>Play as this state</b> to rule it yourself. Its council then pauses for you.</div>'; return; }
   const p = world.polities[player.id];
-  if (!p.alive) { box.innerHTML = `<div class="hint">${p.name} has fallen.</div>`; return; }
+  const seatBar = player.seats.length > 1 ? `<div class="crow" style="flex-wrap:wrap;gap:4px;margin-bottom:6px">${player.seats.map((s, k) => `<button class="xs ${k === player.active ? 'primary' : ''}" data-useseat="${k}">${s.name}: ${world.polities[s.id].name}</button>`).join('')}</div>` : '';
+  if (!p.alive) { box.innerHTML = seatBar + `<div class="hint">${p.name} has fallen.</div>`; return; }
   const nb = [...p.neighbours].map(q => world.polities[q]).filter(q => q.alive);
   const enemies = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a]);
   const near = new Set(nb.map(q => q.id)); for (const q of nb) for (const r of q.neighbours) near.add(r);
   const allyC = [...near].map(q => world.polities[q]).filter(q => q.alive && q.id !== p.id && !world.allied(p.id, q.id) && !world.atWarWith(p.id, q.id) && q.overlord == null).sort((a, b) => b.pop - a.pop).slice(0, 15);
   const al = world.allianceOf(p.id);
   const next = Math.ceil((world.year + 1) / council.every) * council.every;
-  box.innerHTML = `<div>${flagSVG(world, p, 27, 18)} <span class="sw" style="background:${p.color}"></span><b>${p.name}</b></div>
+  box.innerHTML = seatBar + `<div>${flagSVG(world, p, 27, 18)} <span class="sw" style="background:${p.color}"></span><b>${p.name}</b></div>
     <div class="dim">${world._rulerTitle(p)} · ${fmt(p.pop)} · stability ${Math.round(p.stability * 100)}% · priority: ${p.policy ? p.policy.focus : '–'} · next council ${next}</div>
     <div class="crow" style="margin-top:6px"><select id="pa-war">${pOpts(nb.filter(q => !world.atWarWith(p.id, q.id)), 'no neighbours')}</select><button class="xs" id="pa-war-go">Declare war</button></div>
     <div class="crow"><select id="pa-peace">${pOpts(enemies, 'at peace')}</select><button class="xs" id="pa-peace-go">Offer peace</button></div>
@@ -682,13 +689,13 @@ function renderPlayer() {
 }
 function openPlayerCouncil() {
   const p = world.polities[player.id]; if (!p || !p.alive) return;
-  player.busy = true; player.held = world.year;
+  player.busy = true; player.held = world.year; if (player.seats[player.active]) player.seats[player.active].held = world.year;
   const nb = [...p.neighbours].map(q => world.polities[q]).filter(q => q.alive && !world.atWarWith(p.id, q.id));
   const enemies = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a]);
   const near = new Set([...p.neighbours]); for (const q of p.neighbours) for (const r of world.polities[q].neighbours) near.add(r);
   const allyC = [...near].map(q => world.polities[q]).filter(q => q.alive && q.id !== p.id && !world.allied(p.id, q.id) && !world.atWarWith(p.id, q.id) && q.overlord == null).sort((a, b) => b.pop - a.pop).slice(0, 15);
   const F = [['science', 'Learning: fund scholars'], ['farming', 'Farming: clear land, fill granaries'], ['army', 'The army: raise soldiers'], ['expansion', 'Expansion: push into unclaimed land'], ['stability', 'Order at home: calm the provinces'], ['trade', 'Trade: roads, ships, markets']];
-  $('story-title').textContent = `Council of ${p.name}, year ${world.year}`;
+  $('story-title').textContent = `${player.seats.length > 1 ? player.seats[player.active].name + ": " : ""}Council of ${p.name}, year ${world.year}`;
   $('story-body').innerHTML = `<pre class="brief">${world.brief(p).replace(/</g, '&lt;')}</pre>
     <div class="isec">Priority for the next ${council.every} years</div>
     ${F.map(([k, l], n) => `<label class="opt"><input type="radio" name="pc-focus" value="${k}" ${p.policy && p.policy.focus === k || (!p.policy && n === 4) ? 'checked' : ''}> ${l}</label>`).join('')}
@@ -711,9 +718,11 @@ function openPlayerCouncil() {
   };
 }
 function checkPlayerFallen() {
-  if (player.id < 0 || player.fallen) return;
-  const p = world.polities[player.id]; if (p.alive) return;
-  player.fallen = true; player.busy = true;
+  if (player.busy) return;
+  const k = player.seats.findIndex(s => !s.fallen && !world.polities[s.id].alive); if (k < 0) return;
+  useSeat(k);
+  const p = world.polities[player.id];
+  player.fallen = true; player.seats[k].fallen = true; player.busy = true;
   // the successor: whoever now holds most of our old capital region
   const succ = p.capital >= 0 && world.owner[p.capital] >= 0 ? world.polities[world.owner[p.capital]] : null;
   $('story-title').textContent = `${p.name} has fallen (${world.year})`;
@@ -734,7 +743,7 @@ function frame(now) {
   let stepped = 0;
   const t0 = performance.now();
   const councilDue = () => council.mode === 'llm' && world.year % council.every === 0 && council.held !== world.year;
-  const playerDue = () => player.id >= 0 && world.polities[player.id].alive && world.year % council.every === 0 && player.held !== world.year;
+  const playerDue = () => { if (world.year % council.every) return false; const k = player.seats.findIndex(s => world.polities[s.id].alive && s.held !== world.year); if (k < 0) return false; if (k !== player.active) useSeat(k); return true; };
   if (council.busy || player.busy) { /* waiting for a council */ }
   else if (jumpTarget !== null) {
     while (world.year < jumpTarget && performance.now() - t0 < 40) { if (playerDue()) { openPlayerCouncil(); break; } if (councilDue()) { holdLLMCouncil(); break; } stepAll(); stepped++; checkPlayerFallen(); if (world.familyPrompts && world.familyPrompts.length && !player.busy) openFamilyPrompt(); if (player.busy) break; }
@@ -823,7 +832,7 @@ $('branch').onclick = () => {
 // ---------- charts ----------
 const CH_METRICS = [['pop', 'People', 1], ['cells', 'Provinces', 2], ['army', 'Army', 3], ['known', 'Technologies known', 4], ['treasury', 'Treasury', 5], ['urban', 'Share in towns', 6], ['stab', 'Stability', 7]];
 const PAL = ['#f2b544', '#e06666', '#6fa8dc', '#93c47d', '#c27ba0', '#76a5af', '#e69138', '#b4a7d6'];
-function drawLines(cv, series, { y0 = 1, y1 = world.year, pct = false, log = false } = {}) {
+function drawLines(cv, series, { y0 = world.history.length ? world.history[0].y : 1, y1 = world.year, pct = false, log = false } = {}) {
   const x = cv.getContext('2d'), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
   cv.width = W * dpr; cv.height = H * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
   let max = 0, min = Infinity; for (const s of series) for (const [, v] of s.pts) { if (v > max) max = v; if (v > 0 && v < min) min = v; }
@@ -1119,3 +1128,7 @@ function showTab(name) {
   for (const t of document.querySelectorAll('.tab')) t.classList.toggle('on', t.id === 'tab-' + name);
 }
 document.querySelector('.tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); };
+
+$('playerbox').addEventListener('click', e => { const b = e.target.closest('[data-useseat]'); if (b) useSeat(+b.dataset.useseat); });
+
+$('scen').onchange = () => { newWorld(+$('seed').value || 1); $('jumpto').value = String(world.year + 100); };

@@ -63,7 +63,7 @@ export function installFamilies(World) {
       const c = this._nearest(s.lon, s.lat);
       const fam = { id: k, culture: this.culture[c], surname: null, cell: c, gen: 1, head: null, log: [], alive: true, home: s.label, lastOwner: this.owner[c], lastKnown: 0, sackSeen: 0, traits: [], builtin: true };
       fam.surname = this._surname(fam.culture);
-      this._newHead(fam, 1 - this.rng.int(25), true);
+      this._newHead(fam, this.year - this.rng.int(25), true);
       return fam;
     });
   };

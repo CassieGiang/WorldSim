@@ -134,6 +134,8 @@ Only the population curve and the median tech dates are calibrated. Everything e
 - **Charts:** the largest states over time (people, territory, army, technology, wealth, towns, stability), world faiths and language families over time, and this world against ours, with every invention date compared.
 - **State pages:** flag, government, faith, peoples, a population chart, wars, rulers and the state's chronicle. Open one from the inspector, or double-click a state in the list.
 - **History book:** your local AI writes a chapter per century from the chronicle; export it as `.md`.
+- **Start scenarios:** *Start* in the top bar: year 1, or the real map of 1000, 1500, 1800 or 1914 (borders from historical-basemaps), with the techs, population, faiths, peoples and governments of that time. From there history runs freely.
+- **Hot-seat:** after taking a state, click another and press *+ Add as Player 2* (and so on). At council years each player decides in turn; switch between players in the Play tab.
 - **Blind mode:** tick *Blind* before a new world. Plagues, eruptions, climate eras and prophets are then random rather than historical, which shows how much of the result comes from the scripted inputs.
 - **AI councils:** install Ollama and pull a model (e.g. `ollama pull qwen2.5:7b`). On Windows, set the user environment variable `OLLAMA_ORIGINS=*` and restart Ollama, because the page is opened from a file. Then pick *AI councils* and press **Test**.
 
@@ -168,3 +170,14 @@ Tests: `node test/determinism.mjs`, and `node test/check-batch.mjs` after a batc
 - `src/ui.js` and `src/template.html`: the interface
 - `src/council.js`: Ollama client
 - `src/batchworker.js`: background worlds
+
+## Licence and data
+
+WorldSim is free software under the **GNU General Public License v3.0** (see `LICENSE`).
+
+Data used:
+- Climate: Beck et al. (2018), Köppen-Geiger maps (CC BY 4.0).
+- Relief: NOAA ETOPO1.
+- Rivers: Natural Earth (public domain).
+- Peoples: GREG, Geo-Referencing of Ethnic Groups (Weidmann, Rød & Cederman 2010), from the *Atlas Narodov Mira* (1964), projected back with WorldSim's own correction layer.
+- Historical borders for the 1000/1500/1800/1914 starts: [historical-basemaps](https://github.com/aourednik/historical-basemaps) by André Ourednik (GPL-3.0).

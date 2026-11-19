@@ -409,3 +409,38 @@ RENAME = {
  'Tibetans': None, 'Uighurs': 'tocharians', 'Khalka-Mongols': 'xiongnu', 'Kazakhs': 'kangju', 'Hungarians or Magyars': 'pannonians',
  'Bushmen': 'san', 'Hottentots': 'khoekhoe', 'Sinhalese': None,
 }
+
+# When each correction stops applying: the year by which the modern group had arrived or the
+# year-1 people had been absorbed. Used for the later start scenarios (1000, 1500, 1800, 1914).
+UNTIL = {
+ 'britons': 600, 'picts': 900, 'irish': 9999, 'gauls': 500, 'belgae': 500, 'aquitani': 600, 'vascones': 9999, 'iberians': 300, 'celtiberians': 300,
+ 'lusitanians': 300, 'gallaeci': 400, 'latins': 800, 'sardinians': 1000, 'helvetii': 500, 'raeti': 600, 'norici': 600, 'pannonians': 900,
+ 'illyrians': 600, 'dardanians': 600, 'thracians': 600, 'moesians': 600, 'dacians': 700, 'paeonians': 600, 'frisii': 800, 'franks': 500,
+ 'saxons': 800, 'suebi': 600, 'marcomanni': 550, 'quadi': 550, 'lugii': 550, 'goths': 400, 'danes': 800, 'suiones': 800, 'norse': 800, 'gutes': 800,
+ 'venedi': 700, 'balts': 900, 'aesti': 1300, 'chudes': 1200, 'merya': 1100, 'mordvins': 1300, 'sarmatians': 400, 'iazyges': 400, 'alans': 1300,
+ 'scythians': 300, 'taurians': 400, 'greeks': 9999, 'phrygians': 600, 'galatians': 500, 'cappadocians': 1100, 'cilicians': 1100, 'armenians': 1916,
+ 'colchians': 1000, 'iberians_c': 9999, 'albanians_c': 1100, 'medes': 1000, 'persians': 9999, 'parthians': 900, 'elymaeans': 900, 'gedrosians': 1200,
+ 'bactrians': 1100, 'sogdians': 1000, 'chorasmians': 1200, 'massagetae': 500, 'kangju': 600, 'saka': 600, 'ferghanans': 1000, 'wusun': 600,
+ 'tocharians': 900, 'pashtuns': 9999, 'arameans': 900, 'assyrians': 9999, 'phoenicians': 700, 'judeans': 400, 'nabataeans': 600, 'arabs': 9999,
+ 'himyarites': 700, 'egyptians': 1100, 'punics': 700, 'cyrenaicans': 700, 'libyans': 1100, 'garamantes': 1100, 'numidians': 1100, 'mauri': 1100,
+ 'gaetuli': 1100, 'nubians': 1500, 'meroites': 400, 'sao': 1400, 'aksumites': 1000, 'agaw': 1200, 'scushites': 1000, 'san': 1000, 'khoekhoe': 1700,
+ 'han': 9999, 'minyue': 900, 'yue': 900, 'nanyue': 900, 'luoyue': 900, 'lacviet': 900, 'dian': 1300, 'yelang': 900, 'manyi': 1300, 'qiang': 1000,
+ 'xiongnu': 400, 'xianbei': 600, 'wuhuan': 400, 'dingling': 900, 'buyeo': 700, 'yemaek': 700, 'samhan': 700, 'yilou': 1900, 'tungus': 1700,
+ 'yukaghirs': 1300, 'ugrians': 1700, 'samoyeds': 1700, 'wa': 700, 'emishi': 1100, 'hayato': 800, 'cham': 1700, 'khmer': 1750, 'mon': 1300,
+ 'lawa': 1300, 'pyu': 1000, 'malays': 1500, 'kamarupans': 1000, 'kiratis': 1000, 'vangas': 1000, 'magadhans': 1000, 'kalingas': 1000, 'kosalans': 1000,
+ 'panchalas': 1000, 'malavas': 1000, 'saurashtrans': 1000, 'maharashtris': 1000, 'andhras': 1000, 'kannadigas': 1000, 'tamils': 9999, 'punjabis': 1000,
+ 'sindhis': 1000, 'northeast': 1700, 'iroquoians': 1750, 'hopewell': 1750, 'southeast': 1800, 'plains': 1850, 'puebloans': 1850, 'hohokam': 1850,
+ 'numic': 1850, 'californians': 1850, 'pnw': 1850, 'subarctic': 1900, 'cree': 1880, 'dorset': 1300, 'chichimecs': 1700, 'teotihuacanos': 1600,
+ 'westmex': 1600, 'gulfmex': 1600, 'arawaks': 1550, 'archaic': 1550, 'mochica': 1600, 'nazcans': 1600, 'quechua': 1600, 'aymara': 1600, 'canari': 1600,
+ 'muisca': 1600, 'mapuche': 1880, 'diaguita': 1600, 'aborigines': 1850, 'DROP': 1600,
+}
+def until(key, box, match):
+    if key == 'greeks' and box[0] >= 25.5 and box[1] >= 34 and box[2] <= 42:   # Anatolia's Greeks, before the Turks
+        return 1350
+    if key == 'DROP' and box[1] >= 0 and box[3] <= 22 and box[0] >= -20:      # Arabs and Fulbe in the Sahel
+        return 1400
+    if key == 'DROP' and box[0] <= -120:                                      # settlers in the Americas and Oceania
+        return 1700
+    if key.startswith('='):
+        return 9999
+    return UNTIL.get(key, 1000)

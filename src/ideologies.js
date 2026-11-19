@@ -66,9 +66,9 @@ export function installIdeologies(World) {
     };
     const alive = this.polities.filter(p => p.alive && p.classes && p.pop > 1e6);
     const by = f => alive.filter(f).sort((a, b) => b.pop - a.pop)[0];
-    birth('liberal', by(p => p.tech[T.printing] && p.classes.merchants > 0.04 && p.urban / p.pop > 0.15), 'Its writers argue that people are born free and that rulers answer to the ruled.');
+    birth('liberal', by(p => p.tech[T.printing] && p.tech[T.scientific_method] && p.classes.merchants > 0.04 && p.urban / p.pop > 0.15), 'Its writers argue that people are born free and that rulers answer to the ruled.');
     if (this.ideoBorn.liberal) birth('conservative', by(p => p.tech[T.printing] && this.ideoSup[p.capital * K + I.liberal] > 0.15), 'It answers the liberals: keep the old order, change slowly, honour faith and crown.');
-    birth('nationalist', by(p => p.tech[T.printing] && p.tech[T.public_education] || (p.tech[T.printing] && p.foreign / p.pop > 0.4 && p.pop > 5e6)), 'It teaches that every people should have its own state.');
+    birth('nationalist', by(p => p.tech[T.public_education] || (p.tech[T.scientific_method] && p.tech[T.printing] && p.foreign / p.pop > 0.4 && p.pop > 5e6)), 'It teaches that every people should have its own state.');
     birth('socialist', by(p => p.tech[T.industry] && p.classes.workers > 0.12), 'It tells the workers in the new factories that the wealth they make should be theirs.');
     birth('fascist', by(p => p.tech[T.public_education] && p.tech[T.industry] && (p.lostWar || 0) > this.year - 25 && (p.unrest || 0) > 0.3), 'Born of defeat and hard times, it worships the nation, the leader and war.');
   };
@@ -141,7 +141,7 @@ export function installIdeologies(World) {
       }
       p.ideoFx = FX[IDEOS[p.ideo].id];
       // policy toward the state's peoples
-      if (p.id !== this.playerId) p.nationPolicy = p.ideo === I.fascist || p.gov === 'dictatorship' ? 'repress' : p.ideo === I.liberal && p.gov === 'democracy' && p.foreign / Math.max(1, p.pop) > 0.3 ? 'autonomy' : 'assimilate';
+      if (!this.isPlayer(p.id)) p.nationPolicy = p.ideo === I.fascist || p.gov === 'dictatorship' ? 'repress' : p.ideo === I.liberal && p.gov === 'democracy' && p.foreign / Math.max(1, p.pop) > 0.3 ? 'autonomy' : 'assimilate';
     }
   };
   P._fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + ' million' : Math.round(n / 1e3) + ',000';

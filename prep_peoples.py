@@ -8,7 +8,7 @@ from shapely.geometry import shape, Point
 from shapely.strtree import STRtree
 sys.path.insert(0, 'data'); sys.path.insert(0, '.')
 from classify_modern import branch as modern_branch, FAMILY, KEY
-from year1_peoples import P, R, RENAME
+from year1_peoples import P, R, RENAME, until as rule_until
 
 gdir = sys.argv[1] if len(sys.argv) > 1 else 'greg'
 rd = shapefile.Reader(gdir + '/GREG', encoding='latin1')
@@ -31,13 +31,16 @@ world = json.load(open('src/world2.json'))
 cells = world['cells']; N = len(cells); sp = world['spacingDeg']
 
 def inbox(lon, lat, b): return b[0] <= lon <= b[2] and b[1] <= lat <= b[3]
+YEAR = 1
 def year1(name, lon, lat):
     br = modern_branch(name, [c for c, _ in cty[name].most_common(3)] or ['XX'])
     for key, box, match in R:
+        if rule_until(key, box, match) <= YEAR: continue
         if not inbox(lon, lat, box): continue
         if match != '*' and br not in match: continue
         return key
-    if name in RENAME and RENAME[name]: return RENAME[name]
+    if name in RENAME and RENAME[name] and rule_until(RENAME[name], [0, 0, 0, 0], '*') > YEAR: return RENAME[name]
+    if 'Arabs' in name and br == 'semitic': return 'arabs'
     return '=' + name
 
 import re
@@ -60,41 +63,51 @@ def people(key):
     peoples[key] = rec
     return rec['id']
 
-out = [None] * N
-rad = sp * 0.38
-for i, c in enumerate(cells):
-    lat, lon = c['lat'], c['lon']
-    pts = [(lon, lat)] + [(lon + rad * math.cos(a) / max(0.2, math.cos(math.radians(lat))), lat + rad * math.sin(a)) for a in [k * math.pi / 3 for k in range(6)]]
-    acc = collections.Counter()
-    for (x, y) in pts:
-        pt = Point(x, y)
-        for gi in tree.query(pt):
-            if geoms[gi].contains(pt):
-                for n, w, _ in recs[gi]:
-                    k = year1(n, lon, lat)
-                    if k != 'DROP': acc[k] += w
-                    else: acc['DROP'] += w * 0.001
-                break
-    real = [(k, v) for k, v in acc.most_common() if k != 'DROP']
-    if real:
-        tot = sum(v for _, v in real[:2])
-        out[i] = [people(real[0][0])] + ([people(real[1][0]), round(real[1][1] / tot, 3)] if len(real) > 1 else [])
-    else:
-        out[i] = 'drop' if acc else None
+def assign():
+    out = [None] * N
+    rad = sp * 0.38
+    for i, c in enumerate(cells):
+        lat, lon = c['lat'], c['lon']
+        pts = [(lon, lat)] + [(lon + rad * math.cos(a) / max(0.2, math.cos(math.radians(lat))), lat + rad * math.sin(a)) for a in [k * math.pi / 3 for k in range(6)]]
+        acc = collections.Counter()
+        for (x, y) in pts:
+            pt = Point(x, y)
+            for gi in tree.query(pt):
+                if geoms[gi].contains(pt):
+                    for n, w, _ in recs[gi]:
+                        k = year1(n, lon, lat)
+                        if k != 'DROP': acc[k] += w
+                        else: acc['DROP'] += w * 0.001
+                    break
+        real = [(k, v) for k, v in acc.most_common() if k != 'DROP']
+        if real:
+            tot = sum(v for _, v in real[:2])
+            out[i] = [people(real[0][0])] + ([people(real[1][0]), round(real[1][1] / tot, 3)] if len(real) > 1 else [])
+        else:
+            out[i] = 'drop' if acc else None
 
-# fill gaps (no GREG polygon, or dropped settler populations) from the nearest assigned cell
-from collections import deque
-q = deque(i for i in range(N) if isinstance(out[i], list))
-dist = [0 if isinstance(out[i], list) else -1 for i in range(N)]
-while q:
-    i = q.popleft()
-    for j in cells[i]['n']:
-        if dist[j] < 0:
-            dist[j] = dist[i] + 1; out[j] = [out[i][0]]; q.append(j)
-for i in range(N):
-    if not isinstance(out[i], list): out[i] = [0]
+    # fill gaps (no GREG polygon, or dropped settler populations) from the nearest assigned cell
+    from collections import deque
+    q = deque(i for i in range(N) if isinstance(out[i], list))
+    dist = [0 if isinstance(out[i], list) else -1 for i in range(N)]
+    while q:
+        i = q.popleft()
+        for j in cells[i]['n']:
+            if dist[j] < 0:
+                dist[j] = dist[i] + 1; out[j] = [out[i][0]]; q.append(j)
+    for i in range(N):
+        if not isinstance(out[i], list): out[i] = [0]
 
+
+    return out
+
+out = assign()
+scen_people = {}
+for Y in (1000, 1500, 1800, 1914):
+    YEAR = Y
+    scen_people[Y] = assign()
 plist = sorted(peoples.values(), key=lambda r: r['id'])
+json.dump({str(Y): [c[0] if c else 0 for c in v] for Y, v in scen_people.items()}, open('data/scen_people.json', 'w'), separators=(',', ':'))
 json.dump({'peoples': [{k: r[k] for k in ('name', 'lang', 'branch', 'family', 'key', 'identity', 'states', 'curated')} for r in plist], 'cells': out}, open('src/peoples.json', 'w'), ensure_ascii=False, separators=(',', ':'))
 cnt = collections.Counter(o[0] for o in out)
 print(len(plist), 'peoples;', sum(1 for r in plist if r['curated']), 'curated')

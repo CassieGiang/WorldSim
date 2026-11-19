@@ -9,6 +9,7 @@
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:radial-gradient(ellipse at 40% 40%, #111a2e 0%, var(--bg) 70%); color:var(--ink); font:13px/1.4 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; overflow:hidden; }
   #app { display:grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr; height:100vh; }
+  header button { white-space:nowrap; } header .grp label { white-space:nowrap; }
   header { grid-column:1 / 3; display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid var(--line); background:rgba(8,12,22,.85); }
   .brand { font-weight:800; letter-spacing:.12em; font-size:13px; color:var(--gold); }
   .yearbox { background:#141d30; border:1px solid var(--line); border-radius:8px; padding:4px 14px; min-width:120px; text-align:center; }
@@ -123,6 +124,7 @@
     <div style="flex:1"></div>
     <button id="b-open">Many worlds</button>
     <label class="grp" title="Plagues, eruptions and prophets at random dates and places instead of our timeline"><input type="checkbox" id="blind"> Blind</label>
+    <div class="grp" title="Start in year 1, or on the real map of a later year"><label>Start</label><select id="scen"><option value="">year 1</option><option>1000</option><option>1500</option><option>1800</option><option>1914</option></select></div>
     <div class="grp"><label>Seed</label><input id="seed" type="number" value="1"><button id="newworld">New world</button></div>
     <div class="grp"><button id="recbtn" title="Record the globe to a video file">● Record</button></div>
     <div class="grp"><button id="branch" title="Copy the world, change one thing, and run both side by side">What if…</button></div>
