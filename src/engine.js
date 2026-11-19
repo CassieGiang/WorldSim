@@ -14,6 +14,7 @@ import { installIdeologies } from './ideologies.js';
 import { installArmies } from './armies.js';
 import { installWarfare2 } from './warfare2.js';
 import { installGovernor } from './governor.js';
+import { installEnvironment } from './environment.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -141,6 +142,7 @@ export class World {
     this._polInit();
     this._pplInit();
     this._ecoInit();
+    this._envInit();
     this._ideoInit();
     this._famInit();
     this._aggregate();
@@ -304,6 +306,7 @@ export class World {
     if (this.opts.council === 'rules' && y % (this.opts.councilEvery || 25) === 0) this.holdCouncilWithRules(this.opts.councilSize || 5);
     this._climate(y);
     this._scheduled(y);
+    this._environment(y);
 
     // ---- food: production ----
     const surplus = new Float64Array(N);
@@ -479,7 +482,7 @@ export class World {
         for (const c of e.front) {
           const fx = this.cellFx[c];
           const dens = this.pop[c] / Math.max(1, this.area[c]);
-          let m = e.mort * (0.35 + 0.65 * Math.min(1, Math.sqrt(dens / 15))) * fx.plague;
+          let m = e.mort * (0.35 + 0.65 * Math.min(1, Math.sqrt(dens / 15))) * fx.plague * (e.pox || !this.immune ? 1 : 1 - 0.2 * this.immune[c]);
           if (e.pox) m *= fx.pox * (this.nw[c] ? 1 : 0.15);
           m = Math.min(0.8, m * (0.8 + 0.4 * rng.next()));
           const d = this.pop[c] * m;
@@ -1113,4 +1116,5 @@ installIdeologies(World);
 installArmies(World);
 installWarfare2(World);
 installGovernor(World);
+installEnvironment(World);
 World.prototype._rngFactory = makeRng;

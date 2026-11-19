@@ -324,7 +324,7 @@ export function installMarkets(World) {
       S[b + G.fish] += this.fish[i] * 0.04;
       S[b + G.cloth] += town * 0.25 * (crops & (cotton | sheep) ? 1 : 0.3);
       S[b + G.metal] += (res & 1 || res & 2 ? Math.sqrt(pop) * 30 : 0);
-      S[b + G.timber] += this.area[i] * (f[3] + f[4] + f[1] * 0.5) * 20;
+      S[b + G.timber] += this.area[i] * (this.forest ? this.forest[i] : (f[3] + f[4] + f[1] * 0.5)) * 20;
       if (Math.abs(cs[i].lat) > 28 && Math.abs(cs[i].lat) < 47 && f[3] > 0.3 && (cul === 'latin' || cul === 'greek' || cul === 'persian' || cul === 'celtic' || cul === 'germanic')) S[b + G.wine] += pop * 0.02;
       if (cul === 'sinitic' || cul === 'korean' || cul === 'japanese') S[b + G.silk] += pop * 0.012;
       if (f[1] > 0.4 && this.coastal[i] && cs[i].lon > 70 && cs[i].lon < 135 && cs[i].lat < 22) S[b + G.spices] += pop * 0.02;

@@ -5,7 +5,7 @@ import riversPng from './rivers.png';
 import { Globe } from './globe.js';
 import { World, fmt } from './engine.js';
 import { GOVS, RES } from './systems.js';
-import { TECHS, REAL_POP } from './scenario.js';
+import { TECHS, REAL_POP, TECH_INDEX as TECH_IDX } from './scenario.js';
 import { askCouncil, listModels, writeFamilyStory, writeChapter } from './council.js';
 import { FAMILY_TRAITS } from './families.js';
 import { WHATIFS } from './whatif.js';
@@ -120,6 +120,7 @@ const MODES = {
       const o = world.owner[i], base = o < 0 ? [70, 78, 66] : toRGB(world.polities[o].color);
       return f != null && world.knows && !world.knows(f, i) ? [14, 16, 22] : base; },
     legendFn: () => { const f = player.id >= 0 ? player.id : selected >= 0 && world.owner[selected] >= 0 ? world.owner[selected] : (world._largest()[0] || {}).id; return f != null ? [[`what ${world.polities[f].name} knows (select another state to switch)`, '#888'], ['unknown to it', '#0e1016']] : []; } },
+  forest: { label: 'Forests', color: i => { if (!world.forest) return [50, 60, 50]; const f = world.forest[i], pot = world.forestPot[i]; if (pot < 0.05) return [120, 110, 90]; return ramp([[170, 140, 90], [120, 140, 70], [30, 100, 45]], f / pot); }, legend: ['cleared', 'thinned', 'forest'], legendColors: ['rgb(170,140,90)', 'rgb(120,140,70)', 'rgb(30,100,45)'] },
   government: { label: 'Government', color: i => { const o = world.owner[i]; return o < 0 ? [45, 52, 44] : GOV_COL[world.polities[o].gov] || [120, 120, 120]; },
     legendFn: () => Object.entries(GOV_COL).map(([g, c]) => [GOVS[g].label, css(c)]) },
   resources: { label: 'Resources', color: i => { const r = world.res[i]; for (const [k, c] of RES_ORDER) if (r & (1 << RES.indexOf(k))) return c; return [48, 56, 48]; },
@@ -358,6 +359,7 @@ function showCell(i) {
   if (c.city) html += row('City', c.city);
   html += row('Height', Math.round(c.elev / 10) * 10 + ' m') + row('Faith', c.faith);
   for (const a of (world.armies || []).filter(a => a.alive && world.distDeg(a.cell, i) < 2.5)) html += `<div class="isec">Army of ${world.polities[a.pol].name}</div>` + row('Soldiers', fmt(a.size)) + row('Troops', a.mix || '') + row('General', `${a.gen.name} (${a.gen.traits.join(', ')}), ${a.gen.wins} wins, ${a.gen.losses} defeats`) + row('Supply', Math.round(a.supply * 100) + '%') + row('Morale', Math.round(a.morale * 100) + '%') + row('War', a.war.name);
+  if (world.forest) html += row('Forest', world.forestPot[i] > 0.05 ? Math.round(world.forest[i] / world.forestPot[i] * 100) + '% of its natural cover' : 'none') + (world.salt[i] > 0.05 ? row('Salt in the soil', Math.round(world.salt[i] * 100) + '%') : '') + (world.soilCap[i] < 0.95 ? row('Eroded', Math.round((1 - world.soilCap[i]) * 100) + '%') : '') + (world.malaria[i] > 0.2 ? row('Malaria', world.cellTech[i][TECH_IDX.germ_theory] ? 'controlled' : 'endemic') : '');
   if (world.crops) html += row('Grows', world.cropsHere(i).join(', ') || '–');
   html += `<div class="isec">Peoples here</div>` + world.peoplesHere(i).map(x => row(`${x.q.name} <span class="dim">(${x.q.lang}, ${x.q.family})</span>`, Math.round(x.share * 100) + '%')).join('');
   if (c.resources.length) html += row('Resources', c.resources.join(', '));
@@ -401,7 +403,7 @@ canvas.addEventListener('pointerup', e => {
     const id = ll ? globe.idAt(ll[0], ll[1]) : 65535;
     if (id < world.N && famUI.moveFam != null) { const f = world.families[famUI.moveFam]; famUI.moveFam = null; selected = id; showCell(id); world.familyAct(f, { key: 'picked', cell: id }); appendEvents(); renderFamilies(); }
     else if (id < world.N && famUI.picking) { famUI.picking = false; selected = id; showCell(id); openAddFamily(id); }
-    else if (id < world.N) { selected = id; showCell(id); if (mode === 'known') { colorsDirty = true; renderLegend(); } } else { selected = -1; $('inspector').innerHTML = '<div class="hint">Click land to inspect it.</div>'; }
+    else if (id < world.N) { selected = id; showCell(id); showTab('inspect'); if (mode === 'known') { colorsDirty = true; renderLegend(); } } else { selected = -1; $('inspector').innerHTML = '<div class="hint">Click land to inspect it.</div>'; }
     needsDraw = true;
   }
   drag = null;
@@ -642,6 +644,7 @@ $('x-json').onclick = () => {
 
 // ---------- player mode ----------
 function setPlayer(id) {
+  if (id >= 0) showTab('play');
   player.id = id; world.playerId = id; player.held = world.year; player.fallen = false;
   renderPlayer(); if (selected >= 0) showCell(selected);
   if (id >= 0) world._log('council', `You take the throne of ${world.polities[id].name}.`, { pol: id, big: true });
@@ -859,7 +862,7 @@ function openCharts() {
     } else {
       series = [{ name: 'This world: people', color: '#f2b544', pts: world.history.filter((h, k) => k % 5 === 0).map(h => [h.y, h.pop]) }, { name: 'Our world', color: 'rgba(255,255,255,.6)', dash: true, pts: REAL_POP.filter(r => r[0] <= world.year).map(r => [r[0], r[1] * 1e6]) }];
       const rows = TECHS.filter(t => t.ry > 0 && world.firstTech[t.id]).map(t => { const f = world.firstTech[t.id], d = f.year - t.ry; return `<tr><td>${t.name}</td><td>${t.ry}</td><td>${f.year}</td><td style="color:${d > 0 ? '#e06666' : '#93c47d'}">${d > 0 ? '+' : ''}${d}</td><td class="dim">${f.by}</td></tr>`; }).join('');
-      $('ch-extra').innerHTML = `<table class="ctab"><tr><th>Invention</th><th>Our world</th><th>This world</th><th>Diff</th><th>First</th></tr>${rows}</table>`;
+      $('ch-extra').innerHTML = (world.ppm ? `<p class="dim">CO₂ ${world.ppm.toFixed(0)} ppm · warming ${world.warming >= 0 ? '+' : ''}${world.warming.toFixed(2)}°C · sea level +${world.seaRise.toFixed(2)} m (our world 2024: 420 ppm, +1.3°C, +0.2 m)</p>` : '') + `<table class="ctab"><tr><th>Invention</th><th>Our world</th><th>This world</th><th>Diff</th><th>First</th></tr>${rows}</table>`;
     }
     drawLines($('ch-cv'), series, { pct, log: log && !pct });
     $('ch-leg').innerHTML = series.map(s => `<span style="white-space:nowrap;margin-right:10px"><i style="display:inline-block;width:10px;height:3px;background:${s.color};vertical-align:middle;margin-right:4px"></i>${s.name}</span>`).join('');
@@ -1044,7 +1047,7 @@ $('panelbtn').onclick = () => { const a = document.querySelector('aside'); a.cla
     ov.addEventListener('pointerup', up); ov.addEventListener('pointercancel', up);
   }
   // a tap on the map on a phone shows the inspector
-  canvas.addEventListener('pointerup', () => { if (window.innerWidth <= 820 && selected >= 0 && !pinch) { const a = document.querySelector('aside'); if (!a.classList.contains('open')) $('panelbtn').click(); setTimeout(() => $('inspector').scrollIntoView({ block: 'start', behavior: 'smooth' }), 260); } });
+  canvas.addEventListener('pointerup', () => { if (window.innerWidth <= 820 && selected >= 0 && !pinch) { const a = document.querySelector('aside'); if (!a.classList.contains('open')) $('panelbtn').click(); showTab('inspect'); } });
 }
 
 
@@ -1095,7 +1098,7 @@ function renderGovernor() {
   if ($('gv-obey')) $('gv-obey').onclick = () => { world.governorObey(); appendEvents(); renderGovernor(); };
   $('gv-rise').onclick = () => { const n = world.governorRevolt(); appendEvents(); colorsDirty = true; needsDraw = true; if (n) { world.governor = null; setPlayer(n.id); } renderGovernor(); };
   // a recall stops the clock until you choose
-  if (g.status === 'recalled' && playing) $('play').click();
+  if (g.status === 'recalled' && playing) { $('play').click(); showTab('play'); }
 }
 $('inspector').addEventListener('click', e => {
   const b = e.target.closest('[data-gov]'); if (!b) return;
@@ -1106,5 +1109,13 @@ $('inspector').addEventListener('click', e => {
     <div class="crow"><label>Your governor is of the people <select id="gv-ppl">${here.map(x => `<option value="${x.q.id}">${x.q.name}</option>`).join('')}<option value="${world.ppl[world.polities[world.owner[c]].capital]}">${world.peoples[world.ppl[world.polities[world.owner[c]].capital]].name} (the rulers' people)</option></select></label></div>
     <div class="crow" style="margin-top:8px"><button class="primary" id="gv-go">Take the governorship</button></div>`;
   $('story').classList.add('open');
-  $('gv-go').onclick = () => { world.startGovernor(c, +$('gv-ppl').value); $('story').classList.remove('open'); appendEvents(); renderGovernor(); };
+  $('gv-go').onclick = () => { showTab('play'); world.startGovernor(c, +$('gv-ppl').value); $('story').classList.remove('open'); appendEvents(); renderGovernor(); };
 });
+
+
+// ---------- side panel tabs ----------
+function showTab(name) {
+  for (const b of document.querySelectorAll('.tabs button')) { b.classList.toggle('on', b.dataset.tab === name); if (b.dataset.tab === name) b.classList.remove('ping'); }
+  for (const t of document.querySelectorAll('.tab')) t.classList.toggle('on', t.id === 'tab-' + name);
+}
+document.querySelector('.tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); };

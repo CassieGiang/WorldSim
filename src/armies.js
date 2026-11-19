@@ -80,7 +80,7 @@ export function installArmies(World) {
       const need = a.size * 1.5, ratio = Math.min(1.5, food / Math.max(1, need));
       const sup = this._gfx(a.gen, 'supply');
       a.supply = Math.max(0.2, Math.min(1, a.supply * 0.6 + 0.4 * ratio * (own ? 1.3 : 0.9) * sup));
-      const sick = a.size * (0.03 + (1 - a.supply) * 0.12) * (this.polities[a.pol].fx.death > 0.01 ? 0.4 : 1);
+      const sick = a.size * (0.03 + (1 - a.supply) * 0.12 + (this.malaria && this.malaria[c] > 0.2 && !(this.polities[a.pol].capital >= 0 && this.malaria[this.polities[a.pol].capital] > 0.2) ? 0.08 * this.malaria[c] : 0)) * (this.polities[a.pol].fx.death > 0.01 ? 0.4 : 1);
       a.size -= sick; out.deaths += sick;
       if (!own) { const take = this.pop[c] * (a.supply < 0.7 ? 0.05 : 0.02); this.pop[c] -= take; out.deaths += take; this.granary[c] = 0; }
     }

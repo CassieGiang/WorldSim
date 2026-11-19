@@ -34,6 +34,13 @@ A world-history simulation from year 1 to today and beyond, one step per year. I
 - Explorers fill in each state's map; the *Known world* map mode shows what the selected state (or yours) knows.
 - The front moves where the armies are. Armies, their roads and recent battles are drawn on the political map; click one to see it.
 
+**Environment**
+- Forests are cut for fields, fuel and ships and grow back when people leave; states that run out of wood turn to coal sooner.
+- Soil erodes on cleared slopes and salt builds up in irrigated dry land (Mesopotamia's decline as a mechanism); fertiliser and better farming repair it.
+- Malaria kills newcomers (colonists and invading armies) in warm wetlands until germ theory; city-dwellers build up immunity to crowd diseases.
+- River floods (and the Yellow River changing course), droughts, locust swarms and cattle plagues. Dams reduce floods.
+- Factories emit CO₂; the world warms, tropical harvests suffer, cold lands gain, weather turns more extreme and the sea takes low coasts.
+
 **Ideas and nations**
 - Ideologies are born when their conditions first exist somewhere (liberalism needs print and merchants; socialism needs factories and workers; fascism needs defeat and hard times) and spread like faiths. In blind mode they get invented names.
 - Support is tracked per province from its classes and crises. Democracies hold elections; elsewhere radical ideas bring revolutions, purges, and revolutions exported to neighbours. Ideology changes research, war appetite, allies and enemies.
@@ -113,8 +120,9 @@ Only the population curve and the median tech dates are calibrated. Everything e
 
 ## Using it
 - **Phones:** works on GitHub Pages in a phone browser: the map fills the screen, tap the bar at the bottom for the panel, pinch to zoom. AI features need Ollama on a PC.
+- **Side panel:** tabs for World, Inspect (what you clicked), Play (your state or governorship), Families and Chronicle.
 - **Playing:** open `index.html`. Drag to rotate, scroll to zoom, click land to inspect it.
-  - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, peoples, languages, language families, crops and animals, bread prices, inequality, ideologies, nationhood, government, resources, trade routes, wealth and fish.
+  - Map modes: political, people, food, deaths, height, soil, cleared farmland, weather, tech, religion, peoples, languages, language families, crops and animals, bread prices, inequality, ideologies, nationhood, known world, forests, government, resources, trade routes, wealth and fish.
 - **Chronicle:** filters, plus export to `.md` (readable) or `.json` (everything).
 - **Many worlds:** runs dozens of seeds in the background. Click a row to open that world.
 - **Play a state:** click a state, then *Play as this state*. Every council year (25 by default) the game pauses and you are the council: set the priority, declare war, make peace, join or leave alliances and write a proclamation. The YOU card also lets you act at any time. If your state falls you can take over its successor, pick another or just watch.
@@ -150,6 +158,9 @@ Tests: `node test/determinism.mjs`, and `node test/check-batch.mjs` after a batc
 - `src/families.js`: the followed families
 - `src/economy.js`: crops and animals, prices and silver, classes, institutions, class revolts, big works
 - `src/ideologies.js`: ideologies, elections and revolutions, nation-building, marriages, the league
+- `src/environment.js`: forests, erosion and salt, disease ecology, floods and droughts, climate change
+- `src/governor.js`: playing as a governor
+- `src/armies.js`, `src/warfare2.js`: armies, battles, sieges, navies, treaties, explorers, pirates
 - `src/peoples.js`: peoples, languages, assimilation, new peoples, identity revolts
 - `src/scenario.js`: editable data (techs, year-1 states, population, plagues, volcanoes, names)
 - `src/cities.js`: historic city sites
