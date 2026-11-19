@@ -85,6 +85,9 @@
   .opin { display:grid; grid-template-columns:110px 70px 1fr; gap:6px; align-items:center; font-size:12px; margin:2px 0; } .opin > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .obar { position:relative; height:6px; background:#1b2338; border-radius:3px; } .obar i { position:absolute; top:0; height:100%; border-radius:3px; } .opin .dim { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #commentary { position:absolute; left:50%; bottom:64px; transform:translateX(-50%); max-width:70%; background:rgba(8,12,22,.88); border-left:3px solid var(--gold); padding:8px 14px; border-radius:6px; font-size:14px; font-style:italic; opacity:0; transition:opacity .4s; pointer-events:none; z-index:5; }
   #commentary.on { opacity:1; }
+  .lrow { display:grid; grid-template-columns:minmax(150px,auto) 110px 1fr; gap:8px; align-items:center; font-size:12px; padding:1px 0; } .lbar { height:6px; background:#1b2338; border-radius:3px; overflow:hidden; } .lbar i { display:block; height:100%; } .lfam { border-bottom:1px solid var(--line); padding:5px 0; } .lfam summary { cursor:pointer; }
+  .bstory { margin-top:8px; font-size:12.5px; line-height:1.5; border-left:3px solid var(--gold); padding-left:10px; }
+  a.enc { color:var(--gold); text-decoration:none; } a.enc:hover { text-decoration:underline; } a.encback { margin-right:6px; }
   .gbar { height:6px; background:#1b2338; border-radius:3px; margin:5px 0; overflow:hidden; } .gbar i { display:block; height:100%; background:var(--gold); }
   .score { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0; } .score div { background:#121a2c; border:1px solid var(--line); border-radius:8px; padding:8px; display:flex; flex-direction:column; } .score b { font-size:15px; } .score span { font-size:11px; opacity:.7; }
   .report { background:#121a2c; border:1px solid var(--line); border-radius:8px; padding:6px 9px; margin:6px 0; font-size:12px; } .report .rrow { display:flex; flex-wrap:wrap; gap:4px 14px; }
@@ -237,7 +240,7 @@
     <div class="tab" id="tab-chronicle">
     <div id="logwrap">
       <div class="card" style="border-bottom:none;padding-bottom:4px">
-        <div class="chead"><h3>CHRONICLE</h3><span style="flex:1"></span><button class="xs" id="x-charts">Charts</button><button class="xs" id="x-book" title="A history of this world, a chapter per century, written by your local AI">Book</button><button id="x-md" class="xs" title="Save what the chronicle shows now, as readable text">Export .md</button><button id="x-json" class="xs" title="Save the whole run: every event, council reasoning, yearly world stats">Export .json</button></div>
+        <div class="chead"><h3>CHRONICLE</h3><span style="flex:1"></span><button class="xs" id="x-charts">Charts</button><button class="xs" id="x-enc" title="Pages for every state, war, faith, ruler and people">Encyclopedia</button><button class="xs" id="x-book" title="A history of this world, a chapter per century, written by your local AI">Book</button><button id="x-md" class="xs" title="Save what the chronicle shows now, as readable text">Export .md</button><button id="x-json" class="xs" title="Save the whole run: every event, council reasoning, yearly world stats">Export .json</button></div>
         <div class="filters">
           <label><input type="checkbox" id="f-big" checked> Major only</label>
           <label><input type="checkbox" id="f-war" checked> Wars</label>

@@ -3,7 +3,7 @@
 import { TECH_INDEX as T } from './scenario.js';
 
 const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + ' million' : n >= 1e3 ? Math.round(n / 1e3) + ',000' : String(Math.round(n));
-export const GOAL_LABEL = { provinces: 'to take provinces', tribute: 'for tribute', faith: 'for the faith', independence: 'for independence', regime: 'to overthrow its government', throne: 'for the throne' };
+export const GOAL_LABEL = { unite: 'to unite its people', provinces: 'to take provinces', tribute: 'for tribute', faith: 'for the faith', independence: 'for independence', regime: 'to overthrow its government', throne: 'for the throne' };
 const BLOCKS = 36 * 18;
 const blockOf = (lon, lat) => Math.min(35, Math.floor((lon + 180) / 10)) + 36 * Math.min(17, Math.floor((lat + 90) / 10));
 
@@ -14,6 +14,7 @@ export function installWarfare2(World) {
   P._warGoal = function (a, b, why) {
     if (/claim to the throne/.test(why || '')) return 'throne';
     if (/rebellion|independence/.test(why || '')) return 'independence';
+    if (this.irred && this.irredentClaim(a, b) > 0 && this.rng.next() < 0.6) return 'unite';
     const f = this.faiths;
     if (f && a.rel >= 0 && b.rel >= 0 && a.rel !== b.rel && f[a.rel].universal && f[b.rel].universal && this.rng.next() < 0.35) return 'faith';
     if (this.ideoHostility && this.ideoHostility(a, b) > 1.2 && this.rng.next() < 0.5) return 'regime';
@@ -43,6 +44,7 @@ export function installWarfare2(World) {
       L.ideo = W.ideo; L.gov = W.gov; if (L.ideoFx !== undefined) L.ideoFx = W.ideoFx;
       terms.push(`${L.name} must take a ${this.ideoAdj ? this.ideoAdj(W.ideo) : 'new'} government`);
     }
+    if (this._exchange && (goal === 'unite' || Math.abs(w.taken) > 1)) { const m = this._exchange(W, L); if (m > 1e5) terms.push(`a population exchange moves ${Math.round(m / 1e5) / 10} million people across the new border`); }
     if (Math.abs(w.taken) > 1) terms.push(`${L.name} cedes about ${(Math.round(Math.abs(w.taken) * this.cellArea * this.K / 1000) * 1000).toLocaleString('en')} km²`);
     if (terms.length && (A.pop + B.pop > 5e6)) this._log('peace', `Treaty of ${place}: ${terms.join('; ')}.`, { pol: W.id, big: A.pop + B.pop > 60e6 });
   };

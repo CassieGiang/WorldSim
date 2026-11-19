@@ -8,7 +8,7 @@ import { Globe } from './globe.js';
 import { World, fmt } from './engine.js';
 import { GOVS, RES } from './systems.js';
 import { TECHS, REAL_POP, TECH_INDEX as TECH_IDX } from './scenario.js';
-import { askCouncil, listModels, writeFamilyStory, writeChapter, writeLetter, writeComment } from './council.js';
+import { askCouncil, listModels, writeFamilyStory, writeChapter, writeLetter, writeComment, writeBranchStory } from './council.js';
 import { FAMILY_TRAITS } from './families.js';
 import { TRAITS as RULER_TRAITS } from './politics.js';
 const TRAIT_LABEL = Object.fromEntries(Object.entries(RULER_TRAITS).map(([k, v]) => [k, v.label]));
@@ -110,6 +110,8 @@ const MODES = {
     legendFn: () => world.faiths.filter(f => f.pop > 0).sort((a, b) => b.pop - a.pop).slice(0, 9).map(f => [`${f.name} ${fmt(f.pop)}`, f.color]) },
   peoples: { label: 'Peoples', color: i => { const a = pplRGB(world.ppl[i]); if (world.ppl2[i] === 65535 || world.mix[i] < 0.15) return a; const b = pplRGB(world.ppl2[i]), m = world.mix[i]; return [lerp(a[0], b[0], m) | 0, lerp(a[1], b[1], m) | 0, lerp(a[2], b[2], m) | 0]; },
     legendFn: () => topBy(i => world.ppl[i]).map(k => [world.peoples[k].name, css(pplRGB(k))]) },
+  diaspora: { label: 'Diasporas', color: i => { const d = world.diasporaAt ? world.diasporaAt(i) : []; if (!d.length) return [38, 44, 40]; const a = pplRGB(d[0][0]), m = Math.min(1, 0.35 + d.reduce((x, y) => x + y[1], 0) * 3); return [lerp(38, a[0], m) | 0, lerp(44, a[1], m) | 0, lerp(40, a[2], m) | 0]; },
+    legendFn: () => { const t = new Map(); if (world.dias) for (const [c, m] of world.dias) for (const [q, v] of m) t.set(q, (t.get(q) || 0) + v * world.pop[c]); return [...t].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([q]) => [world.peoples[q].name, css(pplRGB(q))]); } },
   language: { label: 'Languages', color: i => langRGB(world.peoples[world.ppl[i]].li),
     legendFn: () => topBy(i => world.peoples[world.ppl[i]].li).map(k => [world.langs[k].name, css(langRGB(k))]) },
   langfam: { label: 'Language families', color: i => famRGB(world.peoples[world.ppl[i]].family),
@@ -387,6 +389,7 @@ function showCell(i) {
   if (world.forest) html += row('Forest', world.forestPot[i] > 0.05 ? Math.round(world.forest[i] / world.forestPot[i] * 100) + '% of its natural cover' : 'none') + (world.salt[i] > 0.05 ? row('Salt in the soil', Math.round(world.salt[i] * 100) + '%') : '') + (world.soilCap[i] < 0.95 ? row('Eroded', Math.round((1 - world.soilCap[i]) * 100) + '%') : '') + (world.malaria[i] > 0.2 ? row('Malaria', world.cellTech[i][TECH_IDX.germ_theory] ? 'controlled' : 'endemic') : '');
   if (world.crops) html += row('Grows', world.cropsHere(i).join(', ') || '–');
   html += `<div class="isec">Peoples here</div>` + world.peoplesHere(i).map(x => row(`${x.q.name} <span class="dim">(${x.q.lang}, ${x.q.family})</span>`, Math.round(x.share * 100) + '%')).join('');
+  { const d = world.diasporaAt ? world.diasporaAt(i) : []; if (d.length) html += `<div class="isec">Communities in the town</div>` + d.slice(0, 5).map(([q, v]) => row(`${world.peoples[q].name} <span class="dim">(${world.faiths && world._peopleFaith(q) >= 0 ? world.faiths[world._peopleFaith(q)].name : ''})</span>`, (v * 100).toFixed(1) + '%')).join(''); }
   if (c.resources.length) html += row('Resources', c.resources.join(', '));
   if (p) {
     const wars = world.wars.filter(w => !w.end && (w.a === p.id || w.b === p.id)).map(w => world.polities[w.a === p.id ? w.b : w.a].name);
@@ -396,6 +399,9 @@ function showCell(i) {
     const al = world.allianceOf(p.id); if (al) html += row('Alliance', al.name);
     if (p.overlord != null) html += row('Vassal of', world.polities[p.overlord].name);
     const vs = world.polities.filter(q => q.alive && q.overlord === p.id); if (vs.length) html += row('Vassals', vs.map(q => q.name).join(', '));
+    if (p.tributary != null) html += row('Pays tribute to', world.polities[p.tributary].name);
+    const tb = world.polities.filter(q => q.alive && q.tributary === p.id); if (tb.length) html += row('Tributaries', tb.map(q => q.name).join(', '));
+    if (world.unionOf && world.unionOf(p.id)) html += row('Customs union', world.unionOf(p.id).name);
     html += `<div style="margin:6px 0"><button class="xs" data-play="${p.id}">${player.id === p.id ? 'You rule this state' : '▶ Play as this state'}</button>${player.seats.length && !player.seats.some(s => s.id === p.id) ? ` <button class="xs" data-seat="${p.id}">+ Add as Player ${player.seats.length + 1}</button>` : ''} <button class="xs" data-page="${p.id}">State page</button> <button class="xs" data-gov="${i}">Govern this province</button></div>`;
     if (p.policy) html += row('Council priority', p.policy.focus + (p.policy.source === 'llm' ? ' (AI)' : ''));
   }
@@ -1058,8 +1064,15 @@ function renderBranch() {
     <div class="kv"><span>People</span><b>${st.pop}</b></div><div class="kv"><span>States</span><b>${st.states}</b></div><div class="kv"><span>Wars now</span><b>${st.wars}</b></div><div class="kv"><span>Top tech</span><b>${st.tech}</b></div>
     <div style="margin-top:4px;line-height:1.5">${st.top}</div></div>`;
   $('branchbody').innerHTML = `<div class="dim">Split in ${branch.B.branchYear}. ${Math.round(same * 100)}% of the map still has the same rulers.</div><div class="bgrid">${col('A', a)}${col('B', b)}</div>
-    <div class="crow" style="margin-top:6px"><button class="xs" id="b-split">${split ? 'One globe' : 'Side by side'}</button><button class="xs" data-bk="A">Keep only A</button><button class="xs" data-bk="B">Keep only B</button></div>`;
+    <div class="crow" style="margin-top:6px"><button class="xs" id="b-split">${split ? 'One globe' : 'Side by side'}</button><button class="xs" data-bk="A">Keep only A</button><button class="xs" data-bk="B">Keep only B</button><button class="xs" id="b-tell" title="Your local AI tells how the two timelines came apart">Tell the difference</button></div>
+    ${branch.story ? `<div class="bstory">${esc(branch.story).replace(/\n+/g, '<br><br>')}</div>` : ''}<span class="dim" id="b-tmsg"></span>`;
   $('b-split').onclick = () => setSplit(!split);
+  $('b-tell').onclick = async () => {
+    const y0 = branch.B.branchYear, rec = w => w.events.filter(e => e.y >= y0 && (e.big || ['war', 'peace', 'rise', 'fall', 'split', 'dynasty', 'ruler', 'faith', 'tech'].includes(e.type))).sort((x, y) => (y.big ? 1 : 0) - (x.big ? 1 : 0)).slice(0, 45).sort((x, y) => x.y - y.y).map(e => `${e.y}: ${e.text}`).join('\n') + `\nIn ${w.year}: ${fmt(w.worldPop())} people; largest states ${w._largest().slice(0, 5).map(p => p.name).join(', ')}.`;
+    $('b-tmsg').textContent = `Writing with ${council.model}…`;
+    try { branch.story = await writeBranchStory({ url: council.url, model: council.model, change: branch.B.branchNote || 'one change', recordA: rec(branch.A), recordB: rec(branch.B) }); renderBranch(); }
+    catch (err) { $('b-tmsg').textContent = `Could not reach Ollama (${err.message}). Check the Council settings.`; }
+  };
 }
 document.addEventListener('click', e => {
   const v = e.target.closest('[data-bv]'); if (v) { viewBranch(v.dataset.bv); renderBranch(); return; }
@@ -1140,6 +1153,7 @@ function openCharts() {
   draw();
 }
 $('x-charts').onclick = openCharts;
+$('x-enc').onclick = () => encIndex('states');
 
 
 // ---------- encyclopedia: a page per state ----------
@@ -1148,27 +1162,166 @@ function statePage(p) {
   const wars = world.wars.filter(w => w.a === p.id || w.b === p.id).sort((a, b) => b.deaths - a.deaths).slice(0, 12);
   const peak = (p.hist || []).reduce((a, h) => (h[1] > a[1] ? h : a), [0, 0]);
   const t = new Map(); for (let i = 0; i < world.N; i++) if (world.owner[i] === p.id) t.set(world.ppl[i], (t.get(world.ppl[i]) || 0) + world.pop[i]);
-  const peoples = [...t].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([q, n]) => `${world.peoples[q].name} ${Math.round(n / Math.max(1, p.pop) * 100)}%`).join(', ');
-  const reigns = (p.reigns || []).slice(-25).map(r => `<tr><td>${r.from}–${r.to ?? ''}</td><td>${r.title}</td><td class="dim">House of ${r.dynasty}</td></tr>`).join('');
-  $('story-title').innerHTML = `${flagSVG(world, p, 36, 24)} ${p.name}`;
+  const peoples = [...t].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([q, n]) => `${encLink('people', q, world.peoples[q].name)} ${Math.round(n / Math.max(1, p.pop) * 100)}%`).join(', ');
+  const R0 = Math.max(0, (p.reigns || []).length - 25);
+  const reigns = (p.reigns || []).slice(-25).map((r, k) => `<tr><td>${r.from}–${r.to ?? ''}</td><td>${encLink('ruler', p.id + ':' + (R0 + k), r.title)}</td><td class="dim">House of ${r.dynasty}</td></tr>`).join('');
+  encPush('state', p.id);
+  $('story-title').innerHTML = `${encBack()}${flagSVG(world, p, 36, 24)} ${p.name}`;
   $('story-body').innerHTML = `
     <div class="kv"><span>Founded</span><b>${p.founded}${p.ended ? ` · ended ${p.ended}` : ''}</b></div>
     <div class="kv"><span>Government</span><b>${(GOVS[p.gov] || GOVS.kingdom).label}</b></div>
-    <div class="kv"><span>Faith</span><b>${p.rel >= 0 ? world.faiths[p.rel].name : '–'}</b></div>
+    <div class="kv"><span>Faith</span><b>${p.rel >= 0 ? encLink('faith', p.rel, world.faiths[p.rel].name) : '–'}</b></div>
+    ${p.tributary != null ? `<div class="kv"><span>Tributary of</span><b>${stateLink(p.tributary)}</b></div>` : ''}
+    ${(() => { const t = world.polities.filter(q => q.alive && q.tributary === p.id); return t.length ? `<div class="kv"><span>Tributaries</span><b>${t.map(q => stateLink(q.id)).join(', ')}</b></div>` : ''; })()}
+    ${world.unionOf && world.unionOf(p.id) ? `<div class="kv"><span>Customs union</span><b>${esc(world.unionOf(p.id).name)}</b></div>` : ''}
     ${p.alive ? `<div class="kv"><span>People now</span><b>${fmt(p.pop)} in ${p.cells} provinces</b></div><div class="kv"><span>Peoples</span><b>${peoples}</b></div>` : ''}
     <div class="kv"><span>Peak</span><b>${fmt(peak[1])} (${peak[0]})</b></div>
     ${p.classes ? `<div class="kv"><span>Society</span><b>${Object.entries(p.classes).filter(([, v]) => v >= 0.01).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${CLASS_LABEL[k]} ${Math.round(v * 100)}%`).join(', ')}</b></div><div class="kv"><span>Institutions</span><b>${Object.entries(p.inst || {}).map(([k, y]) => `${INST_LABEL[k]} (since ${y})`).join(', ') || '–'}</b></div>` : ''}
     ${(() => { const ws = (world.works || []).filter(w => w.pol === p.id); return ws.length ? `<div class="kv"><span>Great works</span><b>${ws.map(w => `${w.name} (${w.done ? 'built ' + w.done : w.abandoned ? 'abandoned' : 'building'})`).join('; ')}</b></div>` : ''; })()}
     <canvas id="sp-cv" style="width:100%;height:150px;margin-top:6px"></canvas>
-    ${wars.length ? `<div class="isec">Wars</div><table class="ctab">${wars.map(w => `<tr><td>${w.start}–${w.end ?? ''}</td><td>${w.name}</td><td class="dim">${{ provinces: 'for land', tribute: 'for tribute', faith: 'holy war', regime: 'regime change', independence: 'independence', throne: 'succession' }[w.goal || 'provinces']}</td><td>${fmt(w.deaths)} dead</td></tr>`).join('')}</table>` : ''}
+    ${wars.length ? `<div class="isec">Wars</div><table class="ctab">${wars.map(w => `<tr><td>${w.start}–${w.end ?? ''}</td><td>${encLink('war', world.wars.indexOf(w), w.name)}</td><td class="dim">${{ unite: 'to unite its people', provinces: 'for land', tribute: 'for tribute', faith: 'holy war', regime: 'regime change', independence: 'independence', throne: 'succession' }[w.goal || 'provinces']}</td><td>${fmt(w.deaths)} dead</td></tr>`).join('')}</table>` : ''}
     ${(() => { const bs = (world.battles || []).filter(b => b.winner === p.name || b.loser === p.name).sort((a, b) => b.dead - a.dead).slice(0, 10); return bs.length ? `<div class="isec">Great battles</div><table class="ctab">${bs.map(b => `<tr><td>${b.y}</td><td>${b.name}</td><td>${b.winner === p.name ? 'won' : 'lost'} (${b.winner === p.name ? b.wg : b.lg})</td><td>${fmt(b.dead)}</td></tr>`).join('')}</table>` : ''; })()}
     ${reigns ? `<div class="isec">Rulers (latest ${Math.min(25, p.reigns.length)})</div><table class="ctab">${reigns}</table>` : ''}
     <div class="isec">In the chronicle</div>${evs.slice(-40).map(e => `<p><b>${e.y}</b> ${e.text}</p>`).join('')}`;
   $('story').classList.add('open');
   drawLines($('sp-cv'), [{ name: 'people', color: '#f2b544', pts: (p.hist || []).map(h => [h[0], h[1]]) }], { y0: p.founded, y1: p.ended || world.year });
 }
-$('inspector').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (b) statePage(world.polities[+b.dataset.page]); });
-$('states').addEventListener('dblclick', e => { const el = e.target.closest('.st'); if (el) statePage(world.polities[+el.dataset.pol]); });
+$('inspector').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (b) { encHist.length = 0; statePage(world.polities[+b.dataset.page]); } });
+$('states').addEventListener('dblclick', e => { const el = e.target.closest('.st'); if (el) { encHist.length = 0; statePage(world.polities[+el.dataset.pol]); } });
+
+// ---------- encyclopedia: wars, faiths, rulers, peoples, and an index ----------
+const encHist = [];
+function encLink(kind, id, text) { return `<a href="#" class="enc" data-enc="${kind}:${id}">${esc(text)}</a>`; }
+function encPush(kind, id) { const k = kind + ':' + id; if (encHist.at(-1) !== k) encHist.push(k); if (encHist.length > 30) encHist.shift(); }
+function encBack() { return encHist.length > 1 ? '<a href="#" class="enc encback" data-encback="1">←</a> ' : ''; }
+function openEnc(key) {
+  const i = key.indexOf(':'), kind = key.slice(0, i), id = key.slice(i + 1);
+  if (kind === 'state') statePage(world.polities[+id]);
+  else if (kind === 'war') warPage(+id);
+  else if (kind === 'faith') faithPage(+id);
+  else if (kind === 'ruler') { const [pid, r] = id.split(':').map(Number); rulerPage(pid, r); }
+  else if (kind === 'people') peoplePage(+id);
+  else if (kind === 'index') encIndex(id);
+}
+$('story-body').addEventListener('click', e => {
+  const a = e.target.closest('[data-enc]'); if (a) { e.preventDefault(); openEnc(a.dataset.enc); return; }
+});
+$('story-title').addEventListener('click', e => { const a = e.target.closest('[data-encback]'); if (a) { e.preventDefault(); encHist.pop(); const k = encHist.pop(); if (k) openEnc(k); } });
+const stateLink = id => id >= 0 && world.polities[id] ? encLink('state', id, world.polities[id].name) : '–';
+const linkNames = text => { let t = esc(text); for (const p of world._largest().slice(0, 30)) t = t.split(esc(p.name)).join(encLink('state', p.id, p.name)); return t; };
+function encOpen(title) { $('story-title').innerHTML = encBack() + title; $('story').classList.add('open'); }
+function warPage(k) {
+  const w = world.wars[k]; if (!w) return; encPush('war', k);
+  const A = world.polities[w.a], B = world.polities[w.b], g = world.warGroups[w.group];
+  const sideOf = new Map([[w.a, 0], [w.b, 1]]);
+  if (g) for (let pass = 0; pass < 4; pass++) for (const v of g.wars) { if (sideOf.has(v.a) && !sideOf.has(v.b)) sideOf.set(v.b, 1 - sideOf.get(v.a)); else if (sideOf.has(v.b) && !sideOf.has(v.a)) sideOf.set(v.a, 1 - sideOf.get(v.b)); }
+  const side = id => [...sideOf].filter(([x, sd]) => sd === sideOf.get(id) && x !== id).map(([x]) => x);
+  const battles = (world.battles || []).filter(b => b.war === w.name).sort((a, b) => a.y - b.y);
+  const ends = world.events.find(e => e.type === 'peace' && e.text.startsWith(w.name + ' ends'));
+  const treaty = world.events.filter(e => e.y === w.end && /treaty|Treaty|Peace of/.test(e.text) && (e.text.includes(A.name) || e.text.includes(B.name)));
+  const goal = { unite: 'to unite its people', provinces: 'land', tribute: 'tribute', faith: 'holy war', regime: 'to change the government', independence: 'independence', throne: 'the throne' }[w.goal] || 'land';
+  const al = (id) => side(id).map(stateLink).join(', ');
+  encOpen(w.name);
+  $('story-body').innerHTML = `
+    <div class="kv"><span>Years</span><b>${w.start}–${w.end ?? 'ongoing'}</b></div>
+    <div class="kv"><span>Attacker</span><b>${stateLink(w.a)}${al(w.a) ? ' with ' + al(w.a) : ''}</b></div>
+    <div class="kv"><span>Defender</span><b>${stateLink(w.b)}${al(w.b) ? ' with ' + al(w.b) : ''}</b></div>
+    <div class="kv"><span>Fought for</span><b>${goal}</b></div>
+    <div class="kv"><span>Dead</span><b>${fmt(w.deaths)}</b></div>
+    ${ends ? `<div class="kv"><span>Outcome</span><b>${linkNames(ends.text.replace(/^.*?\): /, '').replace(/\s*[\d,.]+( million| billion)? dead\.$/, ''))}</b></div>` : ''}
+    ${treaty.map(e => `<p>${linkNames(e.text)}</p>`).join('')}
+    ${battles.length ? `<div class="isec">Battles</div><table class="ctab">${battles.map(b => `<tr><td>${b.y}</td><td>${esc(b.name)}</td><td class="dim">${esc(b.winner)} (${esc(b.wg)}) beat ${esc(b.loser)} (${esc(b.lg)}), ${fmt(b.dead)} fell</td></tr>`).join('')}</table>` : ''}
+    ${g && g.wars.length > 1 ? `<div class="isec">Part of a wider war</div>${g.wars.filter(v => v !== w).map(v => `<div>${encLink('war', world.wars.indexOf(v), v.name)} <span class="dim">${v.start}–${v.end ?? ''}</span></div>`).join('')}` : ''}
+    <div class="isec">In the chronicle</div>${world.events.filter(e => e.y >= w.start && e.y <= (w.end || world.year) && e.text.includes(w.name)).slice(-20).map(e => `<p><b>${e.y}</b> ${linkNames(e.text)}</p>`).join('') || '<p class="dim">Nothing more recorded.</p>'}`;
+}
+function faithPage(k) {
+  const f = world.faiths[k]; if (!f) return; encPush('faith', k);
+  let now = 0, cells = 0; for (let i = 0; i < world.N; i++) if (world.rel[i] === k) { now += world.pop[i]; cells++; }
+  const born = world.events.find(e => e.type === 'faith' && e.text.includes(f.name0 || f.name));
+  const states = world.polities.filter(p => p.alive && p.rel === k).sort((a, b) => b.pop - a.pop);
+  const pts = (world.shareHist || []).map(h => [h.y, h.faith[k] || 0]);
+  encOpen(`<span class="sw" style="background:${f.color}"></span> ${esc(f.name)}`);
+  $('story-body').innerHTML = `
+    <div class="kv"><span>Founded</span><b>${f.founded <= 1 ? 'before year 1' : f.founded}</b></div>
+    ${born ? `<div class="kv"><span>Origin</span><b>${linkNames(born.text)}</b></div>` : ''}
+    <div class="kv"><span>Believers now</span><b>${fmt(now)} in ${cells} provinces</b></div>
+    <div class="kv"><span>Kind</span><b>${f.universal ? 'seeks converts everywhere' : 'a faith of its own people'}${f.conquest ? ', spread by the sword' : ''}</b></div>
+    <canvas id="fp-cv" style="width:100%;height:140px;margin-top:6px"></canvas>
+    ${states.length ? `<div class="isec">State faith of</div><div>${states.slice(0, 20).map(p => stateLink(p.id)).join(', ')}</div>` : ''}
+    <div class="isec">In the chronicle</div>${world.events.filter(e => e.text.includes(f.name)).slice(-25).map(e => `<p><b>${e.y}</b> ${linkNames(e.text)}</p>`).join('') || '<p class="dim">Nothing recorded.</p>'}`;
+  drawLines($('fp-cv'), [{ name: 'believers', color: f.color, pts }], { y0: Math.max(1, f.founded), y1: world.year });
+}
+function rulerPage(pid, r) {
+  const p = world.polities[pid], R = p && p.reigns && p.reigns[r]; if (!R) return; encPush('ruler', pid + ':' + r);
+  const to = R.to ?? world.year;
+  const evs = world.events.filter(e => e.y >= R.from && e.y <= to && (e.pol === pid || e.text.includes(p.name)));
+  const wars = world.wars.filter(w => (w.a === pid || w.b === pid) && w.start >= R.from && w.start <= to);
+  const house = p.reigns.map((x, k) => [x, k]).filter(([x]) => x.dynasty === R.dynasty);
+  const h0 = (p.hist || []).find(h => h[0] >= R.from), h1 = [...(p.hist || [])].reverse().find(h => h[0] <= to);
+  encOpen(esc(R.title));
+  $('story-body').innerHTML = `
+    <div class="kv"><span>Ruled</span><b>${stateLink(pid)}, ${R.from}–${R.to ?? 'today'} (${to - R.from} years)</b></div>
+    <div class="kv"><span>House</span><b>${esc(R.dynasty)}</b></div>
+    ${R.traits && R.traits.length ? `<div class="kv"><span>Known as</span><b>${R.traits.map(t => TRAIT_LABEL[t] || t).join(', ')}</b></div>` : ''}
+    ${h0 && h1 ? `<div class="kv"><span>The realm</span><b>${fmt(h0[1])} → ${fmt(h1[1])} people, ${h0[2]} → ${h1[2]} provinces</b></div>` : ''}
+    ${wars.length ? `<div class="isec">Wars begun</div>${wars.map(w => `<div>${encLink('war', world.wars.indexOf(w), w.name)} <span class="dim">${w.start}–${w.end ?? ''}</span></div>`).join('')}` : ''}
+    ${house.length > 1 ? `<div class="isec">House of ${esc(R.dynasty)}</div>${house.map(([x, k]) => `<div>${k === r ? '<b>' + esc(x.title) + '</b>' : encLink('ruler', pid + ':' + k, x.title)} <span class="dim">${x.from}–${x.to ?? ''}</span></div>`).join('')}` : ''}
+    <div class="isec">The reign in the chronicle</div>${evs.slice(-25).map(e => `<p><b>${e.y}</b> ${linkNames(e.text)}</p>`).join('') || '<p class="dim">A quiet reign.</p>'}`;
+}
+function peoplePage(k) {
+  const q = world.peoples[k]; if (!q) return; encPush('people', k);
+  const st = new Map(); let n = 0; for (let i = 0; i < world.N; i++) if (world.ppl[i] === k) { n++; const o = world.owner[i]; if (o >= 0) st.set(o, (st.get(o) || 0) + world.pop[i]); }
+  const par = q.parents ? q.parents.map(x => encLink('people', x, world.peoples[x].name)).join(' and ') : '';
+  const kids = world.peoples.map((x, j) => [x, j]).filter(([x]) => x.parents && x.parents.includes(k));
+  encOpen(`<span class="sw" style="background:${q.color}"></span> The ${esc(q.name)}`);
+  $('story-body').innerHTML = `
+    <div class="kv"><span>Language</span><b>${esc(q.lang)} · ${esc(q.branch || '')}${q.family && q.family !== q.branch ? ', ' + esc(q.family) : ''}</b></div>
+    <div class="kv"><span>Where</span><b>${n} provinces${q.pop ? ', ' + fmt(q.pop) : ''}${q.ended ? ` · gone since ${q.ended}` : ''}</b></div>
+    ${q.born > 1 ? `<div class="kv"><span>Formed</span><b>${q.born}${par ? ' from ' + par : ''}</b></div>` : ''}
+    ${st.size ? `<div class="kv"><span>Ruled by</span><b>${[...st].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([o]) => stateLink(o)).join(', ')}</b></div>` : ''}
+    ${(() => { const d = world.diasporaOf ? world.diasporaOf(k) : []; return d.length ? `<div class="isec">Communities abroad</div><div>${d.slice(0, 12).map(([c, v]) => `${esc(world._placeName(c))} <span class="dim">${(v * 100).toFixed(1)}%</span>`).join(', ')}</div>` : ''; })()}
+    ${kids.length ? `<div class="isec">Peoples formed from them</div><div>${kids.map(([x, j]) => encLink('people', j, x.name)).join(', ')}</div>` : ''}
+    <div class="isec">In the chronicle</div>${world.events.filter(e => e.text.includes(q.name)).slice(-25).map(e => `<p><b>${e.y}</b> ${linkNames(e.text)}</p>`).join('') || '<p class="dim">Nothing recorded.</p>'}`;
+}
+// the family tree of languages: families, branches, languages, and the new tongues born from them
+function langTree(T) {
+  encOpen('Encyclopedia');
+  const spk = new Float64Array(world.langs.length), pq = new Map();
+  for (let i = 0; i < world.N; i++) { const q = world.peoples[world.ppl[i]]; spk[q.li] += world.pop[i]; }
+  world.peoples.forEach((q, k) => { if (q.cells > 0) { if (!pq.has(q.li)) pq.set(q.li, []); pq.get(q.li).push(k); } });
+  const byName = new Map(world.langs.map((l, k) => [l.name, k]));
+  const kids = new Map(); world.langs.forEach((l, k) => { if (l.from && byName.has(l.from)) { const p = byName.get(l.from); if (!kids.has(p)) kids.set(p, []); kids.get(p).push(k); } });
+  const sub = k => spk[k] + (kids.get(k) || []).reduce((a, c) => a + sub(c), 0);
+  const total = spk.reduce((a, b) => a + b, 0) || 1;
+  const fams = new Map(); world.langs.forEach((l, k) => { if (l.from && byName.has(l.from)) return; const f = l.family || 'Other'; if (!fams.has(f)) fams.set(f, new Map()); const b = fams.get(f); const br = l.branch || f; if (!b.has(br)) b.set(br, []); b.get(br).push(k); });
+  const maxL = Math.max(1, ...world.langs.map((l, k) => spk[k]));
+  const bar = (v, c) => `<span class="lbar"><i style="width:${Math.max(0.5, Math.min(100, Math.sqrt(v / maxL) * 100))}%;background:${c}"></i></span>`;
+  const row = (k, depth) => {
+    const l = world.langs[k], v = sub(k), alive = v > 0;
+    if (!alive && !l.born && !(kids.get(k) || []).length) return '';
+    const ppl = (pq.get(k) || []).slice(0, 3).map(q => encLink('people', q, world.peoples[q].name)).join(', ');
+    return `<div class="lrow" style="padding-left:${depth * 16}px">${depth ? '└ ' : ''}<b style="${alive ? '' : 'opacity:.5'}">${esc(l.name)}</b>${l.born ? ` <span class="dim">born ${l.born}${l.from ? ' from ' + esc(l.from) : ''}</span>` : ''}${alive ? '' : ' <span class="dim">· no longer spoken</span>'}${bar(v, l.color)}<span class="dim">${alive ? fmt(v) : ''}${ppl ? ' · ' + ppl : ''}</span></div>` + (kids.get(k) || []).sort((a, b) => sub(b) - sub(a)).map(c => row(c, depth + 1)).join('');
+  };
+  const famRows = [...fams].map(([f, brs]) => { const v = [...brs.values()].flat().reduce((a, k) => a + sub(k), 0); return [f, brs, v]; }).filter(x => x[2] > 0 || [...x[1].values()].flat().some(k => world.langs[k].born)).sort((a, b) => b[2] - a[2]);
+  $('story-body').innerHTML = `<div class="crow" style="flex-wrap:wrap;gap:4px">${Object.entries(T).map(([k, l]) => `<button class="xs ${k === 'languages' ? 'primary' : ''}" data-enc="index:${k}">${l}</button>`).join('')}<input id="enc-q" placeholder="search…" style="flex:1;min-width:120px"></div>
+    <div id="enc-list">${famRows.map(([f, brs, v]) => `<details class="lfam" ${v / total > 0.05 ? 'open' : ''}><summary><b>${esc(f)}</b> <span class="dim">${fmt(v)} · ${Math.round(v / total * 100)}%</span></summary>${[...brs].sort((a, b) => b[1].reduce((x, k) => x + sub(k), 0) - a[1].reduce((x, k) => x + sub(k), 0)).map(([br, ks]) => { const bv = ks.reduce((a, k) => a + sub(k), 0); return bv > 0 || ks.some(k => kids.has(k)) ? `<div class="lbr">${br !== f ? `<div class="dim" style="margin-top:4px">${esc(br)} · ${fmt(bv)}</div>` : ''}${ks.sort((a, b) => sub(b) - sub(a)).map(k => row(k, 0)).join('')}</div>` : ''; }).join('')}</details>`).join('')}</div>`;
+  $('enc-q').oninput = () => { const v = $('enc-q').value.toLowerCase(); $('enc-list').querySelectorAll('.lrow').forEach(r => r.style.display = r.textContent.toLowerCase().includes(v) ? '' : 'none'); if (v) $('enc-list').querySelectorAll('details').forEach(d => d.open = true); };
+}
+function encIndex(tab = 'states') {
+  encHist.length = 0; encPush('index', tab);
+  const T = { states: 'States', wars: 'Wars', faiths: 'Faiths', rulers: 'Rulers', peoples: 'Peoples', languages: 'Language tree' };
+  if (tab === 'languages') { langTree(T); return; }
+  encOpen('Encyclopedia');
+  let list = [];
+  if (tab === 'states') list = world.polities.filter(p => (p.peakPop || p.pop) > 2e6).sort((a, b) => (b.peakPop || b.pop) - (a.peakPop || a.pop)).map(p => [encLink('state', p.id, p.name), `${p.founded}–${p.ended ?? ''} · peak ${fmt(p.peakPop || p.pop)}`]);
+  else if (tab === 'wars') list = world.wars.map((w, k) => [w, k]).sort((a, b) => b[0].deaths - a[0].deaths).slice(0, 300).map(([w, k]) => [encLink('war', k, w.name), `${w.start}–${w.end ?? ''} · ${fmt(w.deaths)} dead`]);
+  else if (tab === 'faiths') list = world.faiths.map((f, k) => [encLink('faith', k, f.name), f.founded <= 1 ? 'ancient' : 'founded ' + f.founded]);
+  else if (tab === 'rulers') { const all = []; for (const p of world.polities) (p.reigns || []).forEach((r, k) => { const len = (r.to ?? world.year) - r.from; if (p.peakPop > 5e6 && len >= 25) all.push([len, encLink('ruler', p.id + ':' + k, r.title), `${p.name}, ${r.from}–${r.to ?? ''} (${len} years)`]); }); list = all.sort((a, b) => b[0] - a[0]).slice(0, 300).map(x => [x[1], x[2]]); }
+  else list = world.peoples.map((q, k) => [q, k]).filter(([q]) => q.cells > 0 || q.born > 1).sort((a, b) => (b[0].pop || 0) - (a[0].pop || 0)).slice(0, 400).map(([q, k]) => [encLink('people', k, q.name), `${q.lang}${q.pop ? ' · ' + fmt(q.pop) : ''}${q.born > 1 ? ' · formed ' + q.born : ''}`]);
+  $('story-body').innerHTML = `<div class="crow" style="flex-wrap:wrap;gap:4px">${Object.entries(T).map(([k, l]) => `<button class="xs ${k === tab ? 'primary' : ''}" data-enc="index:${k}">${l}</button>`).join('')}<input id="enc-q" placeholder="search…" style="flex:1;min-width:120px"></div>
+    <table class="ctab" id="enc-list">${list.map(([a, b]) => `<tr><td>${a}</td><td class="dim">${esc(b)}</td></tr>`).join('')}</table>`;
+  $('enc-q').oninput = () => { const v = $('enc-q').value.toLowerCase(); $('enc-list').querySelectorAll('tr').forEach(tr => tr.style.display = tr.textContent.toLowerCase().includes(v) ? '' : 'none'); };
+}
 
 // ---------- the history book ----------
 function centuryRecord(c) {

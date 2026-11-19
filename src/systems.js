@@ -154,7 +154,7 @@ export function installSystems(World) {
         const bySea = sea > 0 && this.coastal[B.cell] && d <= sea;
         if (d > land && !bySea) continue;
         const cost = bySea && d > land * 0.6 ? d * 0.5 : d * (1 + 2 * Math.max(this.rough[A.cell], this.rough[B.cell]));
-        cand.push({ B, ob, v: Math.sqrt(A.pop * B.pop) / Math.pow(cost + 2, 1.4) * (ob === oa ? 1.3 : 1), sea: bySea && d > land * 0.6 });
+        cand.push({ B, ob, v: Math.sqrt(A.pop * B.pop) / Math.pow(cost + 2, 1.4) * (ob === oa ? 1.3 : 1) * (this.unions && ob !== oa && this.sameUnion(oa, ob) ? 1.25 : 1), sea: bySea && d > land * 0.6 });
       }
       cand.sort((a, b) => b.v - a.v);
       for (const c of cand.slice(0, 3)) {

@@ -137,3 +137,19 @@ export async function writeComment({ url, model, event, context, signal }) {
   const j = await r.json();
   return ((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
+
+// how two branches of one world came apart, told by a historian
+export async function writeBranchStory({ url, model, change, recordA, recordB, signal }) {
+  const body = {
+    model, stream: false, options: { temperature: 0.7 },
+    messages: [
+      { role: 'system', content: 'You are a historian comparing two timelines of an alternate world that were identical until one change. In 3 short paragraphs (about 220 words), tell how the change rippled out: what happened in the changed timeline that did not happen in the original, and how the two worlds differ now. Use only the records given and keep every name, year and number exactly as given. Plain English, past tense, no headings or lists.' },
+      { role: 'user', content: `The change: ${change}\n\nOriginal timeline (A):\n${recordA}\n\nChanged timeline (B):\n${recordB}` },
+    ],
+  };
+  if (/qwen3/i.test(model)) body.think = false;
+  const r = await fetch(url.replace(/\/$/, '') + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+  if (!r.ok) throw new Error(`Ollama answered ${r.status}`);
+  const j = await r.json();
+  return ((j.message && j.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}

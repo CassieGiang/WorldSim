@@ -22,6 +22,8 @@ import { installDilemmas } from './dilemmas.js';
 import { installGoals } from './goals.js';
 import { installRivals } from './rivals.js';
 import { installDynasty } from './dynasty.js';
+import { installDiaspora } from './diaspora.js';
+import { installStatecraft } from './statecraft.js';
 
 // ---------- seeded random (sfc32) ----------
 export function makeRng(seed) {
@@ -421,6 +423,7 @@ export class World {
     this._aggregate();
     this._cities();
     this._trade(y);
+    this._diaspora(y);
     this._resources();
     this._economy();
     this._economyB(y);
@@ -431,6 +434,7 @@ export class World {
     this._government(y);
     this._rulers(y);
     this._diplomacy(y);
+    this._statecraft(y);
     this._research(y);
     this._stability(y);
     warD += this._warfare(y);
@@ -722,7 +726,7 @@ export class World {
         const holy = this.faiths && p.rel >= 0 && q.rel >= 0 ? (p.rel === q.rel ? 0.7 : this.faiths[p.rel].universal && this.faiths[q.rel].universal ? 1.4 * rf.holy : 1) : 1;
         const qAl = this.allianceOf(q.id), allyArmy = qAl ? [...qAl.members].reduce((s, m) => s + (m !== q.id ? this.polities[m].army * 0.5 : 0), 0) : 0;
         const demPeace = p.gov === 'democracy' && q.gov === 'democracy' ? 0.1 : 1;
-        const s = p.army / ((q.army + allyArmy) * q.fx.defense + 1) * (1.6 - q.stability) * holy * demPeace * (this.memory ? this.rivalWarFactor(p, q) : 1) * (this.ideoHostility ? this.ideoHostility(p, q) : 1) * (this.inLeague && this.inLeague(p.id, q.id) ? 0.5 : 1);
+        const s = p.army / ((q.army + allyArmy) * q.fx.defense + 1) * (1.6 - q.stability) * holy * demPeace * (this.memory ? this.rivalWarFactor(p, q) : 1) * (this.irred ? 1 + Math.min(1, this.irredentClaim(p, q) / Math.max(1, p.pop) * 10) : 1) * (this.ideoHostility ? this.ideoHostility(p, q) : 1) * (this.inLeague && this.inLeague(p.id, q.id) ? 0.5 : 1);
         if (s > bs) { bs = s; best = q; }
       }
       if (best && bs > 0.9 + rng.next() * 0.8) {
@@ -1140,5 +1144,7 @@ installDilemmas(World);
 installGoals(World);
 installRivals(World);
 installDynasty(World);
+installDiaspora(World);
+installStatecraft(World);
 World.TECHS = TECHS;
 World.prototype._rngFactory = makeRng;
